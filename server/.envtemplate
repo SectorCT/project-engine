@@ -1,0 +1,27 @@
+# Core Django
+DEBUG=True
+SECRET_KEY=change-me
+ALLOWED_HOSTS=localhost,127.0.0.1
+CORS_ALLOWED_ORIGINS=http://localhost:3000
+CSRF_TRUSTED_ORIGINS=http://localhost:3000
+
+# Database
+DB_NAME=waypoint_db
+DB_USER=waypoint_user
+DB_PASSWORD=waypoint_password_2024
+DB_HOST=db
+DB_PORT=5432
+
+# Realtime + background
+REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/0
+AGENT_ORCHESTRATOR_PATH=jobs.orchestrators.dummy.run_job
+
+# Email Configuration
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=
+EMAIL_HOST_PASSWORD=
+DEFAULT_FROM_EMAIL=

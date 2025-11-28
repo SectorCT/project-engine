@@ -1,0 +1,55 @@
+from django.shortcuts import get_object_or_404
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from .models import App, Job
+from .serializers import AppSerializer, JobCreateSerializer, JobDetailSerializer, JobSerializer
+from .tasks import run_job_task
+
+
+class JobViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = (IsAuthenticated,)
+    lookup_field = 'id'
+    lookup_value_regex = '[0-9a-fA-F-]+'
+
+    def get_queryset(self):
+        queryset = Job.objects.filter(owner=self.request.user)
+        if self.action == 'retrieve':
+            queryset = queryset.prefetch_related('steps')
+        return queryset
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return JobDetailSerializer
+        if self.action == 'create':
+            return JobCreateSerializer
+        return JobSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        job = serializer.save(owner=request.user)
+        run_job_task.delay(str(job.id))
+        output = JobSerializer(job, context=self.get_serializer_context())
+        headers = self.get_success_headers(output.data)
+        return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+class AppViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = AppSerializer
+
+    def get_queryset(self):
+        return App.objects.filter(owner=self.request.user)
+
+    @action(detail=False, methods=('get',), url_path=r'by-job/(?P<job_id>[0-9a-fA-F-]+)')
+    def by_job(self, request, job_id=None):
+        job = get_object_or_404(Job, id=job_id, owner=request.user)
+        app = getattr(job, 'app', None)
+        if app is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        serializer = self.get_serializer(app)
+        return Response(serializer.data)
+
