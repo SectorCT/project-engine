@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { AgentPanel } from "@/components/build/AgentPanel";
-import { LivePreviewPanel } from "@/components/build/LivePreviewPanel";
+import { TabbedViewPanel } from "@/components/build/TabbedViewPanel";
 import { ArchitecturePanel } from "@/components/build/ArchitecturePanel";
 import { StatusPanel } from "@/components/build/StatusPanel";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface Tab {
+  id: string;
+  type: "preview" | "code";
+  label: string;
+  filePath?: string;
+  content?: string;
+  closable: boolean;
+}
+
 export default function LiveBuild() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -24,6 +33,48 @@ export default function LiveBuild() {
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">(
     "desktop"
   );
+  const [tabs, setTabs] = useState<Tab[]>([
+    {
+      id: "preview",
+      type: "preview",
+      label: "Live Preview",
+      closable: false,
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>("preview");
+
+  const handleFileClick = (filePath: string, fileName: string) => {
+    // Check if tab already exists
+    const existingTab = tabs.find((tab) => tab.filePath === filePath);
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      return;
+    }
+
+    // Create new tab
+    const newTab: Tab = {
+      id: `code-${Date.now()}`,
+      type: "code",
+      label: fileName,
+      filePath: filePath,
+      closable: true,
+    };
+
+    setTabs([...tabs, newTab]);
+    setActiveTabId(newTab.id);
+  };
+
+  const handleTabClose = (tabId: string) => {
+    if (tabId === "preview") return; // Can't close preview tab
+
+    const newTabs = tabs.filter((tab) => tab.id !== tabId);
+    setTabs(newTabs);
+
+    // If closed tab was active, switch to preview
+    if (activeTabId === tabId) {
+      setActiveTabId("preview");
+    }
+  };
 
   const projectName = "Task Management App";
   const status = "building";
@@ -102,7 +153,7 @@ export default function LiveBuild() {
             animate={{ opacity: 1, x: 0 }}
             className="col-span-12 md:col-span-4 hidden md:block"
           >
-            <ArchitecturePanel />
+            <ArchitecturePanel onFileClick={handleFileClick} />
           </motion.div>
 
           <motion.div
@@ -110,9 +161,13 @@ export default function LiveBuild() {
             animate={{ opacity: 1, x: 0 }}
             className="col-span-12 md:col-span-8"
           >
-            <LivePreviewPanel
+            <TabbedViewPanel
               device={device}
               onDeviceChange={setDevice}
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onTabChange={setActiveTabId}
+              onTabClose={handleTabClose}
             />
           </motion.div>
 

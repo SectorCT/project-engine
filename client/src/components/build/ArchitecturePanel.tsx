@@ -13,6 +13,11 @@ interface FileNode {
   status: "complete" | "in-progress" | "pending";
   linesOfCode?: number;
   children?: FileNode[];
+  path?: string;
+}
+
+interface ArchitecturePanelProps {
+  onFileClick?: (filePath: string, fileName: string) => void;
 }
 
 const mockFileTree: FileNode[] = [
@@ -95,13 +100,19 @@ const mockFileTree: FileNode[] = [
 const FileTreeItem = ({
   node,
   level = 0,
+  onFileClick,
+  currentPath = "",
 }: {
   node: FileNode;
   level?: number;
+  onFileClick?: (filePath: string, fileName: string) => void;
+  currentPath?: string;
 }) => {
   const [isExpanded, setIsExpanded] = useState(level < 2);
 
   const hasChildren = node.children && node.children.length > 0;
+  const filePath = currentPath ? `${currentPath}/${node.name}` : node.name;
+  
   const StatusIcon = () => {
     if (node.status === "complete") {
       return <span className="text-success text-xs">✓</span>;
@@ -112,15 +123,23 @@ const FileTreeItem = ({
     }
   };
 
+  const handleClick = () => {
+    if (hasChildren) {
+      setIsExpanded(!isExpanded);
+    } else if (node.type === "file" && onFileClick) {
+      onFileClick(filePath, node.name);
+    }
+  };
+
   return (
     <div>
       <div
         className={cn(
           "flex items-center gap-2 py-1 px-2 rounded hover:bg-muted/50 cursor-pointer",
-          `pl-${level * 4 + 2}`
+          node.type === "file" && "hover:bg-primary/10"
         )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
-        onClick={() => hasChildren && setIsExpanded(!isExpanded)}
+        onClick={handleClick}
       >
         {hasChildren ? (
           isExpanded ? (
@@ -153,7 +172,13 @@ const FileTreeItem = ({
             transition={{ duration: 0.2 }}
           >
             {node.children!.map((child) => (
-              <FileTreeItem key={child.id} node={child} level={level + 1} />
+              <FileTreeItem 
+                key={child.id} 
+                node={child} 
+                level={level + 1}
+                onFileClick={onFileClick}
+                currentPath={filePath}
+              />
             ))}
           </motion.div>
         )}
@@ -162,7 +187,7 @@ const FileTreeItem = ({
   );
 };
 
-export const ArchitecturePanel = () => {
+export const ArchitecturePanel = ({ onFileClick }: ArchitecturePanelProps) => {
   return (
     <Card className="glass flex flex-col">
       <div className="p-4 border-b border-border">
@@ -193,7 +218,7 @@ export const ArchitecturePanel = () => {
           <ScrollArea className="h-full p-4">
             <div className="space-y-1">
               {mockFileTree.map((node) => (
-                <FileTreeItem key={node.id} node={node} />
+                <FileTreeItem key={node.id} node={node} onFileClick={onFileClick} />
               ))}
             </div>
           </ScrollArea>
