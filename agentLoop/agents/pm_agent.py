@@ -13,7 +13,8 @@ Each object should have:
 - "title": Short summary
 - "description": Detailed instructions for the developer.
 - "assigned_to": Role (e.g., "Frontend Dev", "Backend Dev", "Designer")
-- "dependencies": List of ticket IDs (if you generated IDs, otherwise leave empty)
+- "dependencies": List of temporary ticket IDs (e.g. ["2"]) that must be completed before this one. Stories can depend on other Stories. Epics should NOT be in dependencies - use parent_id for Epic relationship.
+- "parent_id": For "story" types, the temporary ID of the "epic" it belongs to (e.g. "1"). For "epic", leave null.
 
 Guidelines:
 1. KEEP IT SIMPLE. Do not create 10 tiny tickets for a simple feature.
@@ -39,7 +40,8 @@ PRD CONTENT:
 Provide ONLY the JSON list. 
 IMPORTANT: For "dependencies", use the temporary integer IDs (e.g., "1", "2") that you assign to tickets in this list. 
 The system will map them to real database IDs later.
-Each ticket should have a temporary "id" field (e.g. "1", "2", "3") so dependencies can reference it.
+Each ticket MUST have a temporary "id" field (e.g. "1", "2", "3") so dependencies and parent_id can reference it.
+Use STRING values for these temporary IDs (e.g. "1" not 1).
 """
         response_text = self.get_response(prompt)
         
@@ -52,5 +54,3 @@ Each ticket should have a temporary "id" field (e.g. "1", "2", "3") so dependenc
         except json.JSONDecodeError:
             print(f"Error parsing PM response as JSON. Raw response:\n{response_text}")
             return []
-
-

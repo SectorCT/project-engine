@@ -1,7 +1,7 @@
 import os
 import json
 import uuid
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 class TicketSystem:
@@ -38,7 +38,7 @@ class TicketSystem:
             with open(self.local_file, 'w') as f:
                 json.dump([], f)
 
-    def create_ticket(self, type: str, title: str, description: str, assigned_to: str = "Unassigned", dependencies: List[str] = []) -> str:
+    def create_ticket(self, type: str, title: str, description: str, assigned_to: str = "Unassigned", dependencies: List[str] = [], parent_id: Optional[str] = None) -> str:
         """
         Create a new ticket (Epic or Story) and save it.
         Returns the Ticket ID.
@@ -52,6 +52,7 @@ class TicketSystem:
             "status": "todo",
             "assigned_to": assigned_to,
             "dependencies": dependencies,
+            "parent_id": parent_id,
             "created_at": datetime.now().isoformat()
         }
 
@@ -67,29 +68,68 @@ class TicketSystem:
         return ticket_id
 
     def update_ticket_dependencies(self, ticket_id: str, new_dependencies: List[str]):
+        # Convert string IDs to ObjectIds for MongoDB
         if self.use_mongo:
-            # MongoDB relies on ObjectId for _id if we inserted without 'id' field
             from bson.objectid import ObjectId
             try:
                 oid = ObjectId(ticket_id)
+                # Convert dependency strings to ObjectIds
+                dep_objectids = []
+                for dep_id in new_dependencies:
+                    try:
+                        dep_objectids.append(ObjectId(dep_id))
+                    except:
+                        # If it's not a valid ObjectId string, skip it
+                        pass
+                
                 self.collection.update_one(
                     {"_id": oid},
-                    {"$set": {"dependencies": new_dependencies}}
+                    {"$set": {"dependencies": dep_objectids}}
                 )
             except:
-                # Fallback if ticket_id wasn't an ObjectId
                 self.collection.update_one(
                     {"id": ticket_id},
                     {"$set": {"dependencies": new_dependencies}}
                 )
         else:
-            # Local JSON update
             with open(self.local_file, 'r') as f:
                 tickets = json.load(f)
             
             for t in tickets:
                 if t.get('id') == ticket_id:
                     t['dependencies'] = new_dependencies
+                    break
+            
+            with open(self.local_file, 'w') as f:
+                json.dump(tickets, f, indent=2)
+
+    def update_ticket_parent(self, ticket_id: str, parent_id: str):
+        if self.use_mongo:
+            from bson.objectid import ObjectId
+            try:
+                oid = ObjectId(ticket_id)
+                # Convert parent_id string to ObjectId
+                try:
+                    parent_oid = ObjectId(parent_id)
+                    self.collection.update_one(
+                        {"_id": oid},
+                        {"$set": {"parent_id": parent_oid}}
+                    )
+                except:
+                    # If parent_id is not a valid ObjectId, skip
+                    pass
+            except:
+                self.collection.update_one(
+                    {"id": ticket_id},
+                    {"$set": {"parent_id": parent_id}}
+                )
+        else:
+            with open(self.local_file, 'r') as f:
+                tickets = json.load(f)
+            
+            for t in tickets:
+                if t.get('id') == ticket_id:
+                    t['parent_id'] = parent_id
                     break
             
             with open(self.local_file, 'w') as f:
@@ -104,7 +144,12 @@ class TicketSystem:
 
     def get_tickets(self) -> List[Dict]:
         if self.use_mongo:
-            return list(self.collection.find({}, {"_id": 0}))
+            # Convert ObjectIds to strings for consistent output
+            tickets = list(self.collection.find({}))
+            for t in tickets:
+                t['_id'] = str(t['_id'])
+                # If we have dependencies or parent_id as string, that's fine.
+            return tickets
         else:
             with open(self.local_file, 'r') as f:
                 return json.load(f)
