@@ -94,22 +94,21 @@ export default function LiveBuild() {
       </div>
 
       {/* Main Grid Layout */}
-      <div className="flex-1 p-1 overflow-hidden">
-        <div className="h-full max-w-[1920px] mx-auto grid grid-cols-12 grid-rows-2 gap-1">
-          {/* Agent Panel - Left, spans 2 rows */}
+      <div className="flex-1 p-1 overflow-auto">
+        <div className="max-w-[1920px] mx-auto grid grid-cols-12 gap-1">
+          {/* Top Row: Architecture (left) and Live Preview (right) */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="col-span-12 md:col-span-4 row-span-2 hidden md:block"
+            className="col-span-12 md:col-span-4 hidden md:block"
           >
-            <AgentPanel />
+            <ArchitecturePanel />
           </motion.div>
 
-          {/* Live Preview - Top Right, spans 1 row */}
           <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-8 lg:col-span-5 row-span-1"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="col-span-12 md:col-span-8"
           >
             <LivePreviewPanel
               device={device}
@@ -117,27 +116,26 @@ export default function LiveBuild() {
             />
           </motion.div>
 
-          {/* Architecture Panel - Bottom Left, hidden on mobile */}
+          {/* Bottom Row: Status & Metrics (left) and Agent Communication (right) */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-4 lg:col-span-4 row-span-1 hidden md:block"
-          >
-            <ArchitecturePanel />
-          </motion.div>
-
-          {/* Status Panel - Bottom Right */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-8 lg:col-span-4 row-span-1"
+            className="col-span-12 md:col-span-4 hidden md:block"
           >
             <StatusPanel />
           </motion.div>
 
-          {/* Mobile: Agent Panel at top */}
-          <div className="col-span-12 row-span-1 md:hidden">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="col-span-12 md:col-span-8"
+          >
             <AgentPanel />
+          </motion.div>
+
+          {/* Mobile: Show Architecture */}
+          <div className="col-span-12 md:hidden">
+            <ArchitecturePanel />
           </div>
         </div>
       </div>

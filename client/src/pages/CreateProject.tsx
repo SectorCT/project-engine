@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProjectFormData {
@@ -40,10 +41,10 @@ const examplePrompts = [
 ];
 
 const steps = [
-  { id: 1, name: "Project Idea" },
-  { id: 2, name: "Configuration" },
-  { id: 3, name: "Preview" },
-  { id: 4, name: "Launch" },
+  { id: 1, name: "Project Idea", description: "Describe what you want to build" },
+  { id: 2, name: "Configuration", description: "Choose your tech preferences" },
+  { id: 3, name: "Agent Assignment", description: "Review your AI team" },
+  { id: 4, name: "Confirm & Launch", description: "Start building" },
 ];
 
 export default function CreateProject() {
@@ -111,52 +112,77 @@ export default function CreateProject() {
 
   const canProceed = () => {
     if (currentStep === 1) {
-      return formData.name.length > 0 && formData.description.length >= 20;
+      return formData.description.length >= 20;
     }
     return true;
   };
 
   return (
-    <div className="min-h-screen bg-background p-6 lg:p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Progress Indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            {steps.map((step, index) => (
-              <div key={step.id} className="flex items-center flex-1">
-                <div className="flex flex-col items-center flex-1">
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-colors",
-                      currentStep >= step.id
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {currentStep > step.id ? "✓" : step.id}
-                  </div>
-                  <span className="mt-2 text-xs text-center text-muted-foreground">
-                    {step.name}
-                  </span>
-                </div>
-                {index < steps.length - 1 && (
-                  <div
-                    className={cn(
-                      "h-1 flex-1 mx-2 transition-colors",
-                      currentStep > step.id ? "bg-primary" : "bg-muted"
-                    )}
-                  />
-                )}
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
+      <Navbar />
+      <div className="flex-1 p-4 lg:p-6 overflow-hidden">
+        <div className="max-w-6xl mx-auto h-full flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-white" />
               </div>
-            ))}
+              <div>
+                <h1 className="text-xl font-semibold">Create New Project</h1>
+                <p className="text-xs text-muted-foreground">
+                  Step {currentStep} of 4
+                </p>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
+              Cancel
+            </Button>
           </div>
-        </div>
 
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle>Step {currentStep}: {steps[currentStep - 1].name}</CardTitle>
+          {/* Progress Indicator */}
+          <div className="mb-4 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              {steps.map((step, index) => (
+                <div key={step.id} className="flex items-center flex-1">
+                  <div className="flex flex-col items-center flex-1">
+                    <div
+                      className={cn(
+                        "w-12 h-12 rounded-full flex items-center justify-center font-semibold transition-all text-white",
+                        currentStep >= step.id
+                          ? "bg-gradient-primary shadow-lg"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {currentStep > step.id ? "✓" : step.id}
+                    </div>
+                    <div className="mt-3 text-center">
+                      <p className="text-sm font-medium text-foreground">
+                        {step.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {step.description}
+                      </p>
+                    </div>
+                  </div>
+                  {index < steps.length - 1 && (
+                    <div
+                      className={cn(
+                        "h-1 flex-1 mx-4 transition-colors",
+                        currentStep > step.id ? "bg-gradient-primary" : "bg-muted"
+                      )}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+        <Card className="glass flex-1 flex flex-col min-h-0">
+          <CardHeader className="flex-shrink-0 pb-3">
+            <CardTitle className="text-lg">Step {currentStep}: {steps[currentStep - 1].name}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 overflow-auto p-4">
             <AnimatePresence mode="wait">
               {/* Step 1: Project Idea */}
               {currentStep === 1 && (
@@ -165,52 +191,45 @@ export default function CreateProject() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
+                  className="space-y-4"
                 >
                   <div className="space-y-2">
-                    <Label htmlFor="name">Project Name</Label>
-                    <Input
-                      id="name"
-                      placeholder="My Awesome App"
-                      value={formData.name}
-                      onChange={(e) =>
-                        updateFormData({ name: e.target.value })
-                      }
-                      maxLength={50}
-                    />
+                    <h2 className="text-2xl font-bold">What do you want to build?</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Describe your project idea in detail. The more specific you are, the better our AI agents can help.
+                    </p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="description">Project Description</Label>
                     <Textarea
                       id="description"
-                      placeholder="Describe what you want to build... Be as detailed as possible."
+                      placeholder="Example: A real-time collaborative task management app with team workspaces, drag-and-drop kanban boards, integrated chat, and mobile responsiveness. Users should be able to assign tasks, set due dates, and receive notifications."
                       value={formData.description}
                       onChange={(e) =>
                         updateFormData({ description: e.target.value })
                       }
                       rows={8}
                       minLength={20}
+                      className="text-sm resize-none"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Minimum 20 characters. {formData.description.length}/20
-                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Example Prompts</Label>
-                    <div className="flex flex-wrap gap-2">
+                  <div className="space-y-2 pt-3 border-t border-border">
+                    <div className="flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4 text-warning" />
+                      <Label className="text-sm font-semibold">Example Prompts</Label>
+                    </div>
+                    <ul className="space-y-1.5 list-disc list-inside text-sm text-muted-foreground">
                       {examplePrompts.map((prompt, index) => (
-                        <Badge
+                        <li
                           key={index}
-                          variant="outline"
-                          className="cursor-pointer hover:bg-primary/10"
+                          className="cursor-pointer hover:text-foreground transition-colors"
                           onClick={() =>
                             updateFormData({ description: prompt })
                           }
                         >
                           {prompt}
-                        </Badge>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 </motion.div>
               )}
@@ -222,10 +241,10 @@ export default function CreateProject() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
+                  className="space-y-4"
                 >
-                  <div className="space-y-3">
-                    <Label>Platform</Label>
+                  <div className="space-y-2">
+                    <Label className="text-sm">Platform</Label>
                     <RadioGroup
                       value={formData.platform}
                       onValueChange={(value: "web" | "mobile" | "desktop") =>
@@ -253,9 +272,9 @@ export default function CreateProject() {
                     </RadioGroup>
                   </div>
 
-                  <div className="space-y-3">
-                    <Label>Tech Stack</Label>
-                    <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm">Tech Stack</Label>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-sm">Frontend</Label>
                         <div className="flex flex-wrap gap-2 mt-2">
@@ -364,9 +383,9 @@ export default function CreateProject() {
                     </Select>
                   </div>
 
-                  <div className="space-y-3">
-                    <Label>Features</Label>
-                    <div className="space-y-2">
+                  <div className="space-y-2">
+                    <Label className="text-sm">Features</Label>
+                    <div className="space-y-1.5">
                       {[
                         "Authentication",
                         "Payment Processing",
@@ -401,12 +420,12 @@ export default function CreateProject() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
+                  className="space-y-4"
                 >
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
-                      <h3 className="font-semibold mb-2">Project Summary</h3>
-                      <div className="bg-muted/30 p-4 rounded-lg space-y-2 text-sm">
+                      <h3 className="text-sm font-semibold mb-2">Project Summary</h3>
+                      <div className="bg-muted/30 p-3 rounded-lg space-y-1.5 text-xs">
                         <p>
                           <span className="font-medium">Name:</span>{" "}
                           {formData.name}
@@ -422,8 +441,8 @@ export default function CreateProject() {
                       </div>
                     </div>
                     <div>
-                      <h3 className="font-semibold mb-2">Agents</h3>
-                      <div className="space-y-2">
+                      <h3 className="text-sm font-semibold mb-2">Agents</h3>
+                      <div className="space-y-1.5">
                         {[
                           "Business Analyst",
                           "Project Manager",
@@ -433,12 +452,12 @@ export default function CreateProject() {
                         ].map((role) => (
                           <div
                             key={role}
-                            className="flex items-center gap-2 p-2 bg-muted/30 rounded"
+                            className="flex items-center gap-2 p-1.5 bg-muted/30 rounded"
                           >
-                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold">
+                            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold">
                               {role.charAt(0)}
                             </div>
-                            <span className="text-sm">{role}</span>
+                            <span className="text-xs">{role}</span>
                           </div>
                         ))}
                       </div>
@@ -454,21 +473,21 @@ export default function CreateProject() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
+                  className="space-y-4"
                 >
-                  <div className="text-center space-y-4">
+                  <div className="text-center space-y-3">
                     <div className="flex justify-center">
-                      <Sparkles className="w-16 h-16 text-primary" />
+                      <Sparkles className="w-12 h-12 text-primary" />
                     </div>
-                    <h3 className="text-2xl font-semibold">
+                    <h3 className="text-xl font-semibold">
                       Ready to Start Building?
                     </h3>
-                    <p className="text-muted-foreground">
+                    <p className="text-sm text-muted-foreground">
                       Your project will be created and AI agents will begin
                       working immediately.
                     </p>
                   </div>
-                  <div className="bg-muted/30 p-4 rounded-lg space-y-2 text-sm">
+                  <div className="bg-muted/30 p-3 rounded-lg space-y-1.5 text-xs">
                     <p>
                       <span className="font-medium">Estimated Time:</span>{" "}
                       {formData.complexity === "simple"
@@ -492,22 +511,32 @@ export default function CreateProject() {
             </AnimatePresence>
 
             {/* Navigation */}
-            <div className="flex justify-between mt-8 pt-6 border-t border-border">
+            <div className="flex justify-between mt-4 pt-4 border-t border-border flex-shrink-0">
               <Button
-                variant="outline"
+                variant="ghost"
+                size="sm"
                 onClick={handleBack}
                 disabled={currentStep === 1}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
+                Cancel
               </Button>
               {currentStep < 4 ? (
-                <Button onClick={handleNext} disabled={!canProceed()}>
+                <Button 
+                  onClick={handleNext} 
+                  disabled={!canProceed()}
+                  size="sm"
+                  className="bg-gradient-primary hover:opacity-90 text-white"
+                >
                   Next
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
-                <Button onClick={handleLaunch} size="lg">
+                <Button 
+                  onClick={handleLaunch} 
+                  size="default"
+                  className="bg-gradient-primary hover:opacity-90 text-white"
+                >
                   <Sparkles className="w-4 h-4 mr-2" />
                   Start Building
                 </Button>
@@ -515,6 +544,7 @@ export default function CreateProject() {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );

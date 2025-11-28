@@ -29,7 +29,7 @@ export const LivePreviewPanel = ({
   };
 
   return (
-    <Card className="glass h-full flex flex-col">
+    <Card className="glass flex flex-col">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <h2 className="text-lg font-semibold">Live Preview</h2>
         <div className="flex items-center gap-2">
@@ -71,10 +71,10 @@ export const LivePreviewPanel = ({
         </div>
       </div>
 
-      <div className="flex-1 p-4 overflow-auto">
-        <div className={cn("h-full mx-auto", deviceDimensions[device])}>
-          {/* Browser Mockup */}
-          <div className="bg-background-elevated rounded-lg border border-border overflow-hidden h-full flex flex-col">
+      <div className="flex-1 p-4 overflow-hidden flex items-start justify-center">
+        <div className={cn("w-full h-full mx-auto flex items-start justify-center", deviceDimensions[device])}>
+          {/* Browser Mockup - 16:9 aspect ratio */}
+          <div className="bg-background-elevated rounded-lg border border-border overflow-hidden w-full aspect-video flex flex-col">
             {/* Browser Controls */}
             <div className="flex items-center gap-2 p-2 bg-background-overlay border-b border-border">
               <div className="flex gap-1.5">

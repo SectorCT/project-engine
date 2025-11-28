@@ -103,14 +103,14 @@ export const AgentPanel = () => {
   const getInitials = (name: string) => name.charAt(0).toUpperCase();
 
   return (
-    <Card className="glass h-full flex flex-col">
-      <div className="p-4 border-b border-border">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <MessageSquare className="w-5 h-5" />
+    <Card className="glass flex flex-col">
+      <div className="p-2 border-b border-border">
+        <h2 className="text-sm font-semibold mb-2 flex items-center gap-2">
+          <MessageSquare className="w-4 h-4" />
           Agent Communication
         </h2>
 
-        <div className="flex flex-wrap gap-2 mb-3">
+        <div className="flex flex-wrap gap-1 mb-2">
           {["all", "planning", "development", "testing", "decisions"].map(
             (f) => (
               <Button
@@ -118,7 +118,7 @@ export const AgentPanel = () => {
                 variant={filter === f ? "default" : "outline"}
                 size="sm"
                 onClick={() => setFilter(f)}
-                className="text-xs"
+                className="text-[10px] h-6 px-2"
               >
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </Button>
@@ -127,52 +127,52 @@ export const AgentPanel = () => {
         </div>
 
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
           <Input
             placeholder="Search messages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="pl-7 h-7 text-xs"
           />
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
-        <div ref={scrollRef} className="space-y-4">
+      <ScrollArea className="flex-1 p-2">
+        <div ref={scrollRef} className="space-y-2">
           {filteredMessages.map((message) => (
             <div
               key={message.id}
-              className="flex gap-3 animate-fade-in"
+              className="flex gap-2 animate-fade-in"
             >
               <div
                 className={cn(
-                  "w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0",
+                  "w-6 h-6 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 text-xs",
                   agentColors[message.agentRole]
                 )}
               >
                 {getInitials(message.agentName)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-sm">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="font-semibold text-xs">
                     {message.agentName}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     • {agentNames[message.agentRole]}
                   </span>
                   {message.isDecision && (
                     <Badge
                       variant="outline"
-                      className="text-xs bg-primary/10 text-primary border-primary/20"
+                      className="text-[10px] bg-primary/10 text-primary border-primary/20 px-1 py-0"
                     >
                       DECISION
                     </Badge>
                   )}
                 </div>
-                <p className="text-sm text-foreground mb-1">
+                <p className="text-xs text-foreground mb-0.5">
                   {message.content}
                 </p>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[10px] text-muted-foreground">
                   {message.timestamp}
                 </span>
               </div>

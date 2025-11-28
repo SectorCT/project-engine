@@ -164,7 +164,7 @@ const FileTreeItem = ({
 
 export const ArchitecturePanel = () => {
   return (
-    <Card className="glass h-full flex flex-col">
+    <Card className="glass flex flex-col">
       <div className="p-4 border-b border-border">
         <h2 className="text-lg font-semibold">Architecture</h2>
       </div>

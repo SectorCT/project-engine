@@ -133,49 +133,49 @@ export const StatusPanel = () => {
   const costSpent = "$2.34";
 
   return (
-    <Card className="glass h-full flex flex-col">
-      <div className="p-4 border-b border-border">
-        <h2 className="text-lg font-semibold">Status & Metrics</h2>
+    <Card className="glass flex flex-col">
+      <div className="p-2 border-b border-border">
+        <h2 className="text-sm font-semibold">Status & Metrics</h2>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-6">
+      <ScrollArea className="flex-1 p-2">
+        <div className="space-y-3">
           {/* Overall Progress */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">Overall Progress</h3>
-            <div className="flex flex-col items-center justify-center p-6 bg-muted/30 rounded-lg border border-border">
-              <div className="relative w-24 h-24 mb-4">
-                <svg className="transform -rotate-90 w-24 h-24">
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold">Overall Progress</h3>
+            <div className="flex flex-col items-center justify-center p-3 bg-muted/30 rounded-lg border border-border">
+              <div className="relative w-16 h-16 mb-2">
+                <svg className="transform -rotate-90 w-16 h-16">
                   <circle
-                    cx="48"
-                    cy="48"
-                    r="40"
+                    cx="32"
+                    cy="32"
+                    r="28"
                     stroke="currentColor"
-                    strokeWidth="8"
+                    strokeWidth="6"
                     fill="none"
                     className="text-muted"
                   />
                   <circle
-                    cx="48"
-                    cy="48"
-                    r="40"
+                    cx="32"
+                    cy="32"
+                    r="28"
                     stroke="currentColor"
-                    strokeWidth="8"
+                    strokeWidth="6"
                     fill="none"
-                    strokeDasharray={`${(overallProgress / 100) * 251.2} 251.2`}
+                    strokeDasharray={`${(overallProgress / 100) * 175.9} 175.9`}
                     className="text-primary transition-all duration-300"
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-2xl font-bold">{overallProgress}%</span>
+                  <span className="text-lg font-bold">{overallProgress}%</span>
                 </div>
               </div>
-              <div className="text-center space-y-1">
-                <p className="text-sm font-medium">Development</p>
-                <p className="text-xs text-muted-foreground">
+              <div className="text-center space-y-0.5">
+                <p className="text-xs font-medium">Development</p>
+                <p className="text-[10px] text-muted-foreground">
                   ~{timeElapsed} left
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   {costSpent} spent
                 </p>
               </div>
@@ -183,30 +183,30 @@ export const StatusPanel = () => {
           </div>
 
           {/* Active Agents */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">Active Agents</h3>
-            <div className="space-y-2">
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold">Active Agents</h3>
+            <div className="space-y-1.5">
               {mockAgents.map((agent) => (
                 <div
                   key={agent.id}
-                  className="flex items-center gap-3 p-2 rounded-lg bg-muted/30 border border-border"
+                  className="flex items-center gap-2 p-1.5 rounded-lg bg-muted/30 border border-border"
                 >
                   <StatusIndicator status={agent.status} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{agent.name}</span>
-                      <span className="text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium">{agent.name}</span>
+                      <span className="text-[10px] text-muted-foreground">
                         ({agentRoleNames[agent.role]})
                       </span>
                     </div>
                     {agent.currentTask && (
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-[10px] text-muted-foreground truncate">
                         {agent.currentTask}
                       </p>
                     )}
                   </div>
                   {agent.status === "complete" && (
-                    <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
+                    <CheckCircle2 className="w-3 h-3 text-success flex-shrink-0" />
                   )}
                 </div>
               ))}
@@ -214,17 +214,17 @@ export const StatusPanel = () => {
           </div>
 
           {/* Activity Log */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">Activity Log</h3>
-            <div className="space-y-2">
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold">Activity Log</h3>
+            <div className="space-y-1.5">
               {mockActivity.map((event) => (
                 <div
                   key={event.id}
-                  className="flex items-start gap-2 text-sm p-2 rounded-lg bg-muted/30 border border-border"
+                  className="flex items-start gap-1.5 text-xs p-1.5 rounded-lg bg-muted/30 border border-border"
                 >
                   <div
                     className={cn(
-                      "w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
+                      "w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0",
                       event.type === "success" && "bg-success",
                       event.type === "info" && "bg-info",
                       event.type === "warning" && "bg-warning",
@@ -232,10 +232,10 @@ export const StatusPanel = () => {
                     )}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm", activityColors[event.type])}>
+                    <p className={cn("text-xs", activityColors[event.type])}>
                       {event.message}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[10px] text-muted-foreground">
                       {event.timestamp}
                     </p>
                   </div>

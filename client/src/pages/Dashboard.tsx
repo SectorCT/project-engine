@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ProjectCard } from "@/components/ProjectCard";
+import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Filter } from "lucide-react";
 
 interface Project {
   id: string;
@@ -77,11 +78,19 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-background p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-3xl font-bold">Projects</h1>
+    <div className="min-h-screen bg-background flex flex-col">
+      <Navbar />
+      <div className="flex-1 p-6 lg:p-8">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold">Your Projects</h1>
+            <p className="text-muted-foreground">
+              Build, manage, and deploy AI-powered applications
+            </p>
+          </div>
+
+          {/* Action Bar */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1 sm:w-64">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -94,7 +103,7 @@ export default function Dashboard() {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-[180px]">
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder="Filter" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
@@ -107,13 +116,12 @@ export default function Dashboard() {
             </Select>
             <Button
               onClick={() => navigate("/create")}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto bg-gradient-primary hover:opacity-90 text-white"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create New Project
+              New Project
             </Button>
           </div>
-        </div>
 
         {/* Projects Grid */}
         {filteredProjects.length > 0 ? (
@@ -145,6 +153,7 @@ export default function Dashboard() {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
