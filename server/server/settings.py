@@ -193,5 +193,5 @@ CELERY_TASK_EAGER_PROPAGATES = True
 
 AGENT_ORCHESTRATOR_PATH = os.getenv(
     'AGENT_ORCHESTRATOR_PATH',
-    'jobs.orchestrators.dummy.run_job',
+    'jobs.orchestrators.agent_loop.run_job',
 )

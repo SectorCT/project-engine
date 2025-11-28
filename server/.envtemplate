@@ -16,7 +16,12 @@ DB_PORT=5432
 REDIS_URL=redis://redis:6379/0
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
-AGENT_ORCHESTRATOR_PATH=jobs.orchestrators.dummy.run_job
+AGENT_ORCHESTRATOR_PATH=jobs.orchestrators.agent_loop.run_job
+AGENT_LOOP_PATH=agentLoop
+
+# OpenAI / Agents
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
 
 # Email Configuration
 EMAIL_HOST=smtp.gmail.com

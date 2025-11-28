@@ -1,6 +1,6 @@
 # projectEngine – Backend
 
-This repository contains the infrastructure for running asynchronous “build jobs” for projectEngine. Authenticated users can create a job, follow its progress over WebSockets, and fetch the final generated app artifact once it completes.
+This repository contains the infrastructure for running asynchronous “build jobs” for projectEngine. Authenticated users can create a job, hold a real-time requirements conversation with the Client Relations agent over WebSockets, and follow the executive build once the agents start working. The final artifact is stored per user.
 
 ## Stack
 
@@ -29,21 +29,22 @@ Jobs emit updates to the WebSocket group `job_<job_id>` and persist the same inf
 - `GET /api/apps/` – list app artifacts owned by the caller.
 - `GET /api/apps/<id>/` – retrieve an app by ID.
 - `GET /api/apps/by-job/<job_id>/` – fetch the app that belongs to a specific job.
-- WebSocket: `ws://<host>/ws/jobs/<job_id>/` – live updates for an owned job.
+- WebSocket: `ws://<host>/ws/jobs/<job_id>/` (include `Authorization: Bearer <JWT>` in headers; when `ALLOW_WS_TOKEN_QUERY` or `DEBUG` is true you can alternatively use `?token=<JWT>` for quick dev testing).
 
 All endpoints require authentication (JWT) except those under `/api/auth/`.
 
-## Background Execution Flow
+## Runtime Flow
 
-1. `POST /api/jobs/` stores a `Job` with status `queued` and enqueues `jobs.tasks.run_job_task`.
-2. The Celery worker loads the configured orchestrator (defaults to the dummy stub).
-3. The orchestrator receives a `JobCallbacks` instance and uses it to:
-   - emit status transitions,
-   - append agent steps,
-   - publish the final `App`.
-4. Every callback invocation updates the database **and** broadcasts a WebSocket payload to `job_<job_id>`.
+1. `POST /api/jobs/` stores a `Job` with status `collecting`. The initial idea is persisted as both the original prompt and the first chat message.
+2. The backend immediately invokes the agentLoop `RequirementsGatherer`, records the agent’s reply, and streams it via `/ws/jobs/<job_id>/`.
+3. The user and the Client Relations agent continue exchanging `{"kind":"chat","content":"..."}` messages over the socket. Every turn is saved in `JobMessage` and broadcast to connected clients.
+4. Once the agent emits `REQUIREMENTS_SUMMARY`, the backend finalizes the requirements, updates the job status to `queued`, and enqueues `jobs.tasks.run_job_task`.
+5. The Celery worker sets the job status to `running` and hands the refined requirements to the agentLoop executive discussion (CEO/CTO/Secretary). Each agent turn is recorded as a `JobStep` and streamed.
+6. When the discussion finishes, the generated spec (requirements, history, PRD summary) is attached to `App.spec` and broadcast with an `app` event.
 
-To integrate the real multi-agent system, expose a callable and set `AGENT_ORCHESTRATOR_PATH` (env var) to its dotted import path. See `jobs/agent_client.py` for expectations.
+You can still swap the orchestrator by pointing `AGENT_ORCHESTRATOR_PATH` to another callable, but the default now integrates directly with `agentLoop`.
+
+> agentLoop sources live under `server/agentLoop`. If you relocate them, set `AGENT_LOOP_PATH` so the backend can import the package.
 
 ## Running Locally (Docker)
 
@@ -58,7 +59,7 @@ Services:
 - `db`: PostgreSQL 16
 - `redis`: Broker/channel layer
 
-The compose file automatically runs migrations on start. Copy `.envtemplate` to `.env` and adjust secrets before running in anything other than local development.
+The compose file automatically runs migrations on start. Copy `.envtemplate` to `.env`, adjust `AGENT_LOOP_PATH`, `OPENAI_API_KEY`, and other secrets before running outside local development.
 
 ## Running Without Docker
 
@@ -81,7 +82,11 @@ The compose file automatically runs migrations on start. Copy `.envtemplate` to 
 
 1. Create a job via `POST /api/jobs/`.
 2. Connect to `ws://localhost:8000/ws/jobs/<job_id>/` with the same JWT you used for HTTP (Channels shares Django auth; plug in your JWT-to-scope middleware as needed).
-3. Watch for `status`, `step`, and `app` payloads as the job progresses.
+3. Send chat payloads such as:
+   ```json
+   {"kind": "chat", "content": "Here are more details about the target users."}
+   ```
+4. Observe `chat`, `status`, `step`, and `app` payloads as the job progresses from requirements collection to executive build.
 
 ## Next Steps
 

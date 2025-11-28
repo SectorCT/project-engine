@@ -8,6 +8,7 @@ class Job(models.Model):
     """Represents an asynchronous build job owned by a user."""
 
     class Status(models.TextChoices):
+        COLLECTING = 'collecting', 'Collecting Requirements'
         QUEUED = 'queued', 'Queued'
         RUNNING = 'running', 'Running'
         DONE = 'done', 'Done'
@@ -19,13 +20,16 @@ class Job(models.Model):
         on_delete=models.CASCADE,
         related_name='jobs',
     )
-    prompt = models.TextField()
+    initial_prompt = models.TextField()
+    prompt = models.TextField(help_text='Latest refined requirements specification.')
+    requirements_summary = models.TextField(blank=True, default='')
     status = models.CharField(
         max_length=32,
         choices=Status.choices,
-        default=Status.QUEUED,
+        default=Status.COLLECTING,
     )
     error_message = models.TextField(blank=True, default='')
+    conversation_state = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,4 +83,26 @@ class App(models.Model):
 
     def __str__(self) -> str:
         return f'App for job {self.job_id}'
+
+
+class JobMessage(models.Model):
+    """Chat transcript shared between the user and the agents."""
+
+    class Role(models.TextChoices):
+        USER = 'user', 'User'
+        AGENT = 'agent', 'Agent'
+        SYSTEM = 'system', 'System'
+
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=16, choices=Role.choices)
+    sender = models.CharField(max_length=128, blank=True, default='')
+    content = models.TextField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ('created_at',)
+
+    def __str__(self) -> str:
+        return f'{self.role} message for {self.job_id}'
 

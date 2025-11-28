@@ -18,6 +18,10 @@ def run_job_task(job_id: str) -> None:
         logger.warning('Job %s no longer exists. Skipping task.', job_id)
         return
 
+    if job.status == Job.Status.COLLECTING:
+        logger.info('Job %s is still collecting requirements; task will be re-triggered later.', job_id)
+        return
+
     callbacks = JobCallbacks(job_id=str(job.id))
 
     # Ensure the job status switches to running before the orchestrator does work.

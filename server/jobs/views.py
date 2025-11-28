@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from .models import App, Job
 from .serializers import AppSerializer, JobCreateSerializer, JobDetailSerializer, JobSerializer
+from .services import finalize_requirements, initialize_requirements_collection
 from .tasks import run_job_task
 
 
@@ -17,7 +18,7 @@ class JobViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retrieve
     def get_queryset(self):
         queryset = Job.objects.filter(owner=self.request.user)
         if self.action == 'retrieve':
-            queryset = queryset.prefetch_related('steps')
+            queryset = queryset.prefetch_related('steps', 'messages')
         return queryset
 
     def get_serializer_class(self):
@@ -30,8 +31,17 @@ class JobViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, mixins.Retrieve
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        job = serializer.save(owner=request.user)
-        run_job_task.delay(str(job.id))
+        initial_prompt = serializer.validated_data['prompt']
+        job = Job.objects.create(
+            owner=request.user,
+            initial_prompt=initial_prompt,
+            prompt=initial_prompt,
+        )
+        response = initialize_requirements_collection(job)
+        if response.get('finished') and response.get('summary'):
+            finalize_requirements(job, response['summary'])
+            job.refresh_from_db()
+            run_job_task.delay(str(job.id))
         output = JobSerializer(job, context=self.get_serializer_context())
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)

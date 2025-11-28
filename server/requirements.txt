@@ -9,8 +9,8 @@ daphne
 channels-redis
 celery
 redis
+openai
 numpy
 scikit-learn
 requests
-# Email support requires python-dotenv for environment variable loading
 python-dotenv

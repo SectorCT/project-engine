@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import App, Job, JobStep
+from .models import App, Job, JobMessage, JobStep
 
 
 @admin.register(Job)
@@ -22,4 +22,11 @@ class JobStepAdmin(admin.ModelAdmin):
 class AppAdmin(admin.ModelAdmin):
     list_display = ('job', 'owner', 'created_at')
     search_fields = ('job__id', 'owner__email')
+
+
+@admin.register(JobMessage)
+class JobMessageAdmin(admin.ModelAdmin):
+    list_display = ('job', 'role', 'sender', 'created_at')
+    search_fields = ('job__id', 'sender', 'content')
+    ordering = ('-created_at',)
 
