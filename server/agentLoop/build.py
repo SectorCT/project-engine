@@ -58,8 +58,12 @@ def main():
     
     final_tickets = []
     
-    for t in tickets_data:
-        temp_id = t.get("id") # e.g. "1"
+    for idx, t in enumerate(tickets_data):
+        # If PM agent didn't provide an id, auto-assign one based on position
+        if t.get("id") is None:
+            t["id"] = str(idx + 1)
+        
+        temp_id = str(t.get("id")) if t.get("id") is not None else None # Ensure string
         
         # Create the ticket (initially with empty dependencies to avoid broken links)
         real_id = ticket_system.create_ticket(
@@ -67,7 +71,8 @@ def main():
             title=t.get("title", "Untitled"),
             description=t.get("description", ""),
             assigned_to=t.get("assigned_to", "Unassigned"),
-            dependencies=[] # We will fill this in pass 2
+            dependencies=[], # We will fill this in pass 2
+            parent_id=None   # We will fill this in pass 2
         )
         
         if temp_id:
@@ -78,41 +83,41 @@ def main():
         final_tickets.append(t)
         print(f"  [+] Created {t.get('type').upper()}: {t.get('title')} (ID: {real_id})")
 
-    # Second pass: Update dependencies
-    print("Resolving dependencies...")
-    # Note: This requires ticket_system to support 'update_ticket'.
-    # If it doesn't, we might have to just accept that dependencies are text or do a hack.
-    # Let's add update support or just do it in one pass if we assume order?
-    # No, order isn't guaranteed.
+    # Second pass: Update dependencies and parent
+    print("Resolving dependencies and parents...")
     
-    # Let's add a quick update method to ticket_system if we can, or re-save.
-    # Since we are using MongoDB or local file, we can update.
-    
-    # If we don't want to edit ticket_system right now, we can rely on the fact that
-    # the User said "dependencies array has the wrong id".
-    # So we MUST fix it.
-    
-    # Let's just use a simple helper in build.py to update the dependencies
-    # But we can't easily update if we don't have an update method.
-    # Okay, let's ADD an update method to ticket_system.py first.
-    pass 
-
-    # Wait, I can't edit ticket_system.py in this block.
-    # I will edit ticket_system.py in a separate step to add `update_dependencies`.
-    
-    # For now, let's assume we have `update_dependencies`.
     for t in final_tickets:
+        # 1. Update Dependencies
+        # Filter out dependencies that point to the Epic (use parent_id for that relationship)
+        ticket_type = t.get("type", "story")
         raw_deps = t.get("dependencies", [])
         real_deps = []
+        
         for d in raw_deps:
-            # d might be "1" or "2"
-            if str(d) in temp_id_to_db_id:
-                real_deps.append(temp_id_to_db_id[str(d)])
+            d_str = str(d)
+            if d_str in temp_id_to_db_id:
+                # Check if this dependency is an Epic - if so, skip it (use parent_id instead)
+                dep_ticket = next((t2 for t2 in final_tickets if str(t2.get("id")) == d_str), None)
+                if dep_ticket and dep_ticket.get("type") == "epic":
+                    # Skip Epic dependencies - parent_id handles that relationship
+                    continue
+                real_deps.append(temp_id_to_db_id[d_str])
             else:
-                real_deps.append(d) # Keep as is if not found (maybe external dep?)
+                # Skip unknown dependencies
+                pass
         
         if real_deps:
-             ticket_system.update_ticket_dependencies(t['real_db_id'], real_deps)
+            # Pass as strings - update_ticket_dependencies will convert to ObjectIds
+            real_deps_str = [str(d) for d in real_deps]
+            ticket_system.update_ticket_dependencies(t['real_db_id'], real_deps_str)
+
+        # 2. Update Parent
+        raw_parent = t.get("parent_id")
+        if raw_parent:
+            parent_str = str(raw_parent)
+            if parent_str in temp_id_to_db_id:
+                real_parent = temp_id_to_db_id[parent_str]
+                ticket_system.update_ticket_parent(t['real_db_id'], str(real_parent))
 
     print("\nBuild Planning Complete.")
     print(f"Tickets saved to {ticket_system.local_file} (or MongoDB if configured).")
