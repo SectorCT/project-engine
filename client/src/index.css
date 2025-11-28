@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark Background Palette */
+    --background: 222 47% 5%;
+    --background-elevated: 222 40% 7%;
+    --background-overlay: 222 35% 10%;
+    --foreground: 210 40% 98%;
+
+    /* Electric Blue Primary */
+    --primary: 217 91% 60%;
+    --primary-hover: 217 91% 70%;
+    --primary-foreground: 222 47% 5%;
+
+    /* Secondary & Muted */
+    --secondary: 222 35% 12%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 222 30% 15%;
+    --muted-foreground: 215 20% 65%;
+
+    /* Accent Colors */
+    --accent: 217 91% 60%;
+    --accent-foreground: 222 47% 5%;
+
+    /* Agent Role Colors */
+    --agent-analyst: 217 91% 60%;
+    --agent-manager: 142 76% 56%;
+    --agent-architect: 271 91% 65%;
+    --agent-developer: 38 92% 58%;
+    --agent-qa: 0 84% 60%;
+
+    /* Semantic Colors */
+    --success: 142 76% 56%;
+    --warning: 38 92% 58%;
+    --error: 0 84% 60%;
+    --info: 217 91% 60%;
+
+    /* Status Colors */
+    --status-planning: 217 91% 60%;
+    --status-building: 38 92% 58%;
+    --status-testing: 271 91% 65%;
+    --status-complete: 142 76% 56%;
+    --status-failed: 0 84% 60%;
+
+    /* UI Element Colors */
+    --card: 222 35% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 40% 8%;
+    --popover-foreground: 210 40% 98%;
+    --border: 222 30% 18%;
+    --input: 222 30% 15%;
+    --ring: 217 91% 60%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    /* Glassmorphism & Effects */
+    --radius: 0.75rem;
+    --glass-background: 222 35% 10% / 0.6;
+    --glass-border: 222 30% 30% / 0.2;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.6);
+
+    /* Glows */
+    --glow-primary: 0 0 20px hsl(217 91% 60% / 0.3);
+    --glow-success: 0 0 20px hsl(142 76% 56% / 0.3);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  code, pre, .mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: hsl(var(--glass-background));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--glass-border));
+  }
+
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-success {
+    box-shadow: var(--glow-success);
+  }
+
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(271 91% 65%) 100%);
+  }
+
+  .bg-gradient-dark {
+    background: linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background-elevated)) 100%);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(271 91% 65%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
