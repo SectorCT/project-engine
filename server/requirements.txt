@@ -1,0 +1,16 @@
+django
+psycopg2-binary
+gunicorn
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+channels
+daphne
+channels-redis
+celery
+redis
+numpy
+scikit-learn
+requests
+# Email support requires python-dotenv for environment variable loading
+python-dotenv

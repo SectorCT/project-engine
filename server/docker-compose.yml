@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: waypoint_db
+      POSTGRES_USER: waypoint_user
+      POSTGRES_PASSWORD: waypoint_password_2024
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waypoint_user -d waypoint_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  web:
+    build: .
+    volumes:
+      - .:/home/app/
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-placeholder-key-change-in-production}
+      ALLOWED_HOSTS: '*'
+      DB_NAME: waypoint_db
+      DB_USER: waypoint_user
+      DB_PASSWORD: waypoint_password_2024
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.dummy.run_job}
+    command: >
+      sh -c "./wait-for-db.sh db sh -c 'python manage.py migrate &&
+      daphne -b 0.0.0.0 -p 8000 server.asgi:application'"
+
+  worker:
+    build: .
+    volumes:
+      - .:/home/app/
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-placeholder-key-change-in-production}
+      ALLOWED_HOSTS: '*'
+      DB_NAME: waypoint_db
+      DB_USER: waypoint_user
+      DB_PASSWORD: waypoint_password_2024
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.dummy.run_job}
+    command: >
+      sh -c "./wait-for-db.sh db sh -c 'celery -A server worker -l info'"
+
+volumes:
+  pgdata:
+  redisdata:
