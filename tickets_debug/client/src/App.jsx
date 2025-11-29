@@ -5,6 +5,14 @@ function App() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('tickets'); // 'tickets' or 'files'
+  
+  // File browser state
+  const [fileStructure, setFileStructure] = useState(null);
+  const [fileContent, setFileContent] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState(null);
 
   const [filters, setFilters] = useState({
     status: 'all',
@@ -17,9 +25,16 @@ function App() {
     try {
       // Add timestamp to prevent caching
       const res = await axios.get(`/api/tickets?t=${new Date().getTime()}`);
-      setTickets(res.data);
+      // Add null checks to prevent errors
+      if (res && res.data) {
+        setTickets(Array.isArray(res.data) ? res.data : []);
+      } else {
+        setTickets([]);
+        setError('Invalid response from server');
+      }
     } catch (err) {
       setError(err.message || 'Failed to fetch tickets');
+      setTickets([]);
     } finally {
       setLoading(false);
     }
@@ -28,6 +43,54 @@ function App() {
   useEffect(() => {
     fetchTickets();
   }, []);
+
+  const fetchFileStructure = async () => {
+    setFileLoading(true);
+    setFileError(null);
+    try {
+      const res = await axios.get(`/api/files/structure?t=${new Date().getTime()}`);
+      // Add null checks to prevent errors
+      if (res && res.data && res.data.structure) {
+        setFileStructure(res.data.structure);
+      } else {
+        setFileStructure([]);
+        setFileError('Invalid response structure from server');
+      }
+    } catch (err) {
+      setFileError(err.response?.data?.error || err.message || 'Failed to fetch file structure');
+      setFileStructure(null);
+      console.error('File structure error:', err);
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const fetchFileContent = async (filePath) => {
+    setFileLoading(true);
+    setFileError(null);
+    setSelectedFile(filePath);
+    try {
+      const res = await axios.get(`/api/files/content?path=${encodeURIComponent(filePath)}&t=${new Date().getTime()}`);
+      // Add null checks to prevent errors
+      if (res && res.data) {
+        setFileContent(res.data);
+      } else {
+        setFileContent(null);
+        setFileError('Invalid response from server');
+      }
+    } catch (err) {
+      setFileError(err.response?.data?.error || err.message || 'Failed to fetch file content');
+      setFileContent(null);
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'files') {
+      fetchFileStructure();
+    }
+  }, [activeTab]);
 
   const assignees = useMemo(() => {
     const set = new Set(tickets.map(t => t.assigned_to).filter(Boolean));
@@ -127,87 +190,138 @@ function App() {
       <div className="max-w-7xl mx-auto">
         <header className="mb-8 flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800">Ticket Debugger (React)</h1>
-            <p className="text-gray-600">Epics & Stories View</p>
+            <h1 className="text-3xl font-bold text-gray-800">Project Engine Debugger</h1>
+            <p className="text-gray-600">Tickets & File Browser</p>
           </div>
-          <button
-            onClick={fetchTickets}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow transition"
-          >
-            Refresh Data
-          </button>
+          <div className="flex gap-2">
+            {activeTab === 'tickets' && (
+              <button
+                onClick={fetchTickets}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow transition"
+              >
+                Refresh Tickets
+              </button>
+            )}
+            {activeTab === 'files' && (
+              <button
+                onClick={fetchFileStructure}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow transition"
+                disabled={fileLoading}
+              >
+                {fileLoading ? 'Loading...' : 'Refresh Files'}
+              </button>
+            )}
+          </div>
         </header>
 
-        {/* Filters */}
-        <div className="bg-white p-4 rounded-lg shadow mb-6 flex flex-wrap gap-4 items-center">
-          <FilterSelect 
-             label="Status" 
-             value={filters.status} 
-             onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-             options={[
-               { value: 'all', label: 'All Statuses' },
-               { value: 'todo', label: 'Todo' },
-               { value: 'in_progress', label: 'In Progress' },
-               { value: 'done', label: 'Done' },
-             ]}
-           />
-           <div className="flex flex-col">
-             <label className="text-xs font-semibold text-gray-500 uppercase mb-1">Assigned To</label>
-             <select 
-                value={filters.assignee} 
-                onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
-                className="border border-gray-300 rounded p-2 min-w-[150px] focus:ring-2 focus:ring-blue-500 outline-none"
-             >
-                <option value="all">All Users</option>
-                {assignees.map(a => <option key={a} value={a}>{a}</option>)}
-             </select>
-           </div>
-           
-           <div className="flex-grow text-right text-gray-500 text-sm">
-               Epics: {filteredGroups.length} | Orphans: {filteredOrphans.length}
-           </div>
+        {/* Tabs */}
+        <div className="mb-6 flex gap-2 border-b border-gray-300">
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`px-4 py-2 font-semibold transition ${
+              activeTab === 'tickets'
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Tickets
+          </button>
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`px-4 py-2 font-semibold transition ${
+              activeTab === 'files'
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            File Browser
+          </button>
         </div>
 
         {/* Content */}
-        {loading ? (
-          <div className="text-center py-10 text-gray-500">Loading tickets...</div>
-        ) : error ? (
-          <div className="text-center py-10 text-red-500">Error: {error}</div>
-        ) : (
-          <div className="space-y-6">
-            {/* Epics List */}
-            {filteredGroups.map(epic => (
-                <EpicAccordion 
-                    key={epic.id || epic._id} 
-                    epic={epic} 
-                    getTicketTitle={getTicketTitle}
-                    getStatusColor={getStatusColor}
-                    getTicketById={getTicketById}
-                />
-            ))}
-
-            {/* Orphans */}
-            {filteredOrphans.length > 0 && (
-                <div className="mt-8 pt-8 border-t-2 border-gray-200">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Orphan Stories (No Epic)</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredOrphans.map(t => (
-                            <TicketCard 
-                                key={t.id || t._id} 
-                                ticket={t} 
-                                getTicketTitle={getTicketTitle} 
-                                getStatusColor={getStatusColor}
-                                getTicketById={getTicketById}
-                            />
-                        ))}
-                    </div>
+        {activeTab === 'tickets' ? (
+          <>
+            {loading ? (
+              <div className="text-center py-10 text-gray-500">Loading tickets...</div>
+            ) : error ? (
+              <div className="text-center py-10 text-red-500">Error: {error}</div>
+            ) : (
+              <div className="space-y-6">
+                {/* Filters */}
+                <div className="bg-white p-4 rounded-lg shadow flex flex-wrap gap-4 items-center">
+                  <FilterSelect 
+                     label="Status" 
+                     value={filters.status} 
+                     onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                     options={[
+                       { value: 'all', label: 'All Statuses' },
+                       { value: 'todo', label: 'Todo' },
+                       { value: 'in_progress', label: 'In Progress' },
+                       { value: 'done', label: 'Done' },
+                     ]}
+                   />
+                   <div className="flex flex-col">
+                     <label className="text-xs font-semibold text-gray-500 uppercase mb-1">Assigned To</label>
+                     <select 
+                        value={filters.assignee} 
+                        onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
+                        className="border border-gray-300 rounded p-2 min-w-[150px] focus:ring-2 focus:ring-blue-500 outline-none"
+                     >
+                        <option value="all">All Users</option>
+                        {assignees.map(a => <option key={a} value={a}>{a}</option>)}
+                     </select>
+                   </div>
+                   
+                   <div className="flex-grow text-right text-gray-500 text-sm">
+                       Epics: {filteredGroups.length} | Orphans: {filteredOrphans.length}
+                   </div>
                 </div>
+
+                {/* Epics List */}
+                {filteredGroups.map(epic => (
+                    <EpicAccordion 
+                        key={epic.id || epic._id} 
+                        epic={epic} 
+                        getTicketTitle={getTicketTitle}
+                        getStatusColor={getStatusColor}
+                        getTicketById={getTicketById}
+                    />
+                ))}
+
+                {/* Orphans */}
+                {filteredOrphans.length > 0 && (
+                    <div className="mt-8 pt-8 border-t-2 border-gray-200">
+                        <h2 className="text-xl font-bold text-gray-700 mb-4">Orphan Stories (No Epic)</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {filteredOrphans.map(t => (
+                                <TicketCard 
+                                    key={t.id || t._id} 
+                                    ticket={t} 
+                                    getTicketTitle={getTicketTitle} 
+                                    getStatusColor={getStatusColor}
+                                    getTicketById={getTicketById}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
+                
+                {filteredGroups.length === 0 && filteredOrphans.length === 0 && (
+                     <div className="text-center py-10 text-gray-500">No tickets found matching filters.</div>
+                )}
+              </div>
             )}
-            
-            {filteredGroups.length === 0 && filteredOrphans.length === 0 && (
-                 <div className="text-center py-10 text-gray-500">No tickets found matching filters.</div>
-            )}
-          </div>
+          </>
+        ) : (
+          <FileBrowser 
+            fileStructure={fileStructure}
+            fileContent={fileContent}
+            selectedFile={selectedFile}
+            fileLoading={fileLoading}
+            fileError={fileError}
+            onFileSelect={fetchFileContent}
+            onRefresh={fetchFileStructure}
+          />
         )}
       </div>
     </div>
@@ -331,6 +445,123 @@ const TicketCard = ({ ticket, getTicketTitle, getStatusColor, getTicketById, isC
              <span className="max-w-[100px] truncate">{ticket.assigned_to || 'Unassigned'}</span>
           </div>
           <span className={`inline-block w-2 h-2 rounded-full ${getStatusColor(ticket.status)}`} title={ticket.status}></span>
+      </div>
+    </div>
+  );
+};
+
+const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fileError, onFileSelect, onRefresh }) => {
+  const [expandedPaths, setExpandedPaths] = useState(new Set(['/app']));
+
+  const toggleExpand = (path) => {
+    const newExpanded = new Set(expandedPaths);
+    if (newExpanded.has(path)) {
+      newExpanded.delete(path);
+    } else {
+      newExpanded.add(path);
+    }
+    setExpandedPaths(newExpanded);
+  };
+
+  const renderFileTree = (items, level = 0, parentPath = '/app') => {
+    if (!items || !Array.isArray(items) || items.length === 0) return null;
+
+    return (
+      <div className={`${level > 0 ? 'ml-4' : ''}`}>
+        {items.map((item, idx) => {
+          // Construct full path for this item
+          const fullPath = item.path || (parentPath === '/app' ? `/app/${item.name}` : `${parentPath}/${item.name}`);
+          const uniqueKey = `${parentPath}-${item.name}-${idx}`;
+          
+          return (
+            <div key={uniqueKey}>
+              <div 
+                className={`flex items-center py-1 px-2 hover:bg-gray-50 cursor-pointer rounded ${
+                  selectedFile === item.path ? 'bg-blue-50 border-l-2 border-blue-500' : ''
+                }`}
+                onClick={() => {
+                  if (item.type === 'file') {
+                    onFileSelect(item.path);
+                  } else {
+                    toggleExpand(fullPath);
+                  }
+                }}
+              >
+                <span className="mr-2 text-gray-400">
+                  {item.type === 'file' ? '📄' : expandedPaths.has(fullPath) ? '📂' : '📁'}
+                </span>
+                <span className="text-sm text-gray-700">{item.name}</span>
+                {item.type === 'file' && (
+                  <span className="ml-auto text-xs text-gray-400">{item.path}</span>
+                )}
+              </div>
+              {item.type === 'dir' && expandedPaths.has(fullPath) && item.children && (
+                <div className="ml-2">
+                  {renderFileTree(item.children, level + 1, fullPath)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* File Tree */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800">File Structure</h2>
+          <button
+            onClick={onRefresh}
+            disabled={fileLoading}
+            className="text-sm text-blue-600 hover:text-blue-700 disabled:text-gray-400"
+          >
+            {fileLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+        
+        {fileError ? (
+          <div className="text-red-500 text-sm py-4">
+            {fileError}
+          </div>
+        ) : fileLoading && !fileStructure ? (
+          <div className="text-gray-500 text-sm py-4">Loading file structure...</div>
+        ) : fileStructure ? (
+          <div className="max-h-[600px] overflow-y-auto">
+            {renderFileTree(fileStructure)}
+          </div>
+        ) : (
+          <div className="text-gray-500 text-sm py-4">No files found. Make sure the container is running.</div>
+        )}
+      </div>
+
+      {/* File Content */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-gray-800">File Content</h2>
+          {selectedFile && (
+            <span className="text-xs text-gray-500 font-mono">{selectedFile}</span>
+          )}
+        </div>
+        
+        {fileLoading && selectedFile ? (
+          <div className="text-gray-500 text-sm py-4">Loading file content...</div>
+        ) : fileError && selectedFile ? (
+          <div className="text-red-500 text-sm py-4">{fileError}</div>
+        ) : fileContent ? (
+          <div className="max-h-[600px] overflow-auto">
+            <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap break-words">
+              {fileContent.content}
+            </pre>
+            <div className="mt-2 text-xs text-gray-500">
+              Size: {fileContent.size} characters
+            </div>
+          </div>
+        ) : (
+          <div className="text-gray-500 text-sm py-4">Select a file to view its content</div>
+        )}
       </div>
     </div>
   );

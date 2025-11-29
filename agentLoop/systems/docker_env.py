@@ -3,6 +3,7 @@ import os
 import time
 import tarfile
 import io
+from typing import Dict, Any
 from config.settings import settings
 
 class DockerEnv:
@@ -172,6 +173,90 @@ class DockerEnv:
             print(f"[DockerEnv] Exception during command execution: {type(e).__name__}: {e}")
             # Return error exit code and error message
             return 1, f"Execution error: {str(e)}"
+
+    def get_file_structure(self, path: str = "/app") -> Dict[str, Any]:
+        """
+        Get file structure from container as a tree.
+        Returns a dict with 'type' (file/dir), 'name', 'path', and 'children' (for dirs).
+        """
+        if not self.container:
+            raise Exception("Container not running.")
+        
+        try:
+            # Use find command to get file structure
+            cmd = f'sh -c \'find {path} -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/build/*" | head -200\''
+            exit_code, output = self.container.exec_run(cmd, workdir="/app")
+            
+            if exit_code != 0:
+                return {"error": f"Failed to get file structure: {output}"}
+            
+            files = [line.strip() for line in output.strip().split('\n') if line.strip()]
+            
+            # Build tree structure
+            tree = {}
+            for file_path in files:
+                parts = file_path.replace(path, '').strip('/').split('/')
+                current = tree
+                for i, part in enumerate(parts):
+                    if part not in current:
+                        is_file = i == len(parts) - 1
+                        current[part] = {
+                            "name": part,
+                            "path": file_path,
+                            "type": "file" if is_file else "dir",
+                            "children": {} if not is_file else None
+                        }
+                    current = current[part].get("children", {})
+            
+            # Convert to list format
+            def dict_to_list(d):
+                result = []
+                for key, value in sorted(d.items()):
+                    item = {
+                        "name": value["name"],
+                        "path": value["path"],
+                        "type": value["type"]
+                    }
+                    if value["type"] == "dir" and value["children"]:
+                        item["children"] = dict_to_list(value["children"])
+                    result.append(item)
+                return result
+            
+            return {"structure": dict_to_list(tree)}
+            
+        except Exception as e:
+            return {"error": f"Error getting file structure: {str(e)}"}
+    
+    def read_file(self, file_path: str) -> str:
+        """
+        Read file content from container.
+        Returns file content as string.
+        """
+        if not self.container:
+            raise Exception("Container not running.")
+        
+        try:
+            # Use cat to read file
+            cmd = f'cat "{file_path}"'
+            exit_code, output = self.container.exec_run(cmd, workdir="/app")
+            
+            if exit_code != 0:
+                raise Exception(f"Failed to read file: {output}")
+            
+            return output.decode('utf-8', errors='replace')
+            
+        except Exception as e:
+            raise Exception(f"Error reading file: {str(e)}")
+    
+    def get_container(self):
+        """Get the container object (for external use, e.g., in API endpoints)."""
+        if not self.container:
+            # Try to get existing container
+            try:
+                self.container = self.client.containers.get(self.container_name)
+            except docker.errors.NotFound:
+                return None
+        return self.container
 
     def stop_container(self):
         """Stop and remove the container."""
