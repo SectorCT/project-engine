@@ -135,12 +135,13 @@ class TicketSystem:
             with open(self.local_file, 'w') as f:
                 json.dump(tickets, f, indent=2)
 
-    def update_ticket_status(self, ticket_id: str, status: str):
+    def update_ticket_status(self, ticket_id: str, status: str, check_epic_completion: bool = True):
         """
         Update the status of a ticket.
         Args:
             ticket_id: The ID of the ticket to update
             status: The new status (e.g., 'todo', 'done', 'in_progress')
+            check_epic_completion: If True, check if parent epic should be marked as done
         """
         if self.use_mongo:
             from bson.objectid import ObjectId
@@ -168,16 +169,81 @@ class TicketSystem:
                 tickets = json.load(f)
             
             updated = False
+            updated_ticket = None
             for t in tickets:
                 # Check both 'id' and '_id' fields
                 if t.get('id') == ticket_id or t.get('_id') == ticket_id:
                     t['status'] = status
                     updated = True
+                    updated_ticket = t
                     break
             
             if updated:
                 with open(self.local_file, 'w') as f:
                     json.dump(tickets, f, indent=2)
+        
+        # Check if parent epic should be marked as done
+        if check_epic_completion and status == "done":
+            self._check_and_update_epic_status(ticket_id)
+    
+    def _check_and_update_epic_status(self, story_ticket_id: str):
+        """
+        Check if all stories under an epic are done, and if so, mark the epic as done.
+        Args:
+            story_ticket_id: The ID of the story ticket that was just marked as done
+        """
+        all_tickets = self.get_tickets()
+        
+        # Find the story ticket to get its parent_id
+        story_ticket = None
+        for t in all_tickets:
+            ticket_id = str(t.get('_id') or t.get('id') or '')
+            if ticket_id == str(story_ticket_id):
+                story_ticket = t
+                break
+        
+        if not story_ticket:
+            return
+        
+        parent_id = story_ticket.get('parent_id')
+        if not parent_id:
+            return  # Story has no parent epic
+        
+        # Normalize parent_id for comparison
+        parent_id_str = str(parent_id)
+        
+        # Find all stories with this parent_id
+        child_stories = []
+        for t in all_tickets:
+            if t.get('type') == 'story':
+                story_parent_id = str(t.get('parent_id') or '')
+                if story_parent_id == parent_id_str:
+                    child_stories.append(t)
+        
+        # Check if all stories are done
+        if len(child_stories) == 0:
+            return  # No stories found, nothing to check
+        
+        all_done = all(
+            str(story.get('status', '')).lower() == 'done' 
+            for story in child_stories
+        )
+        
+        if all_done:
+            # Mark the epic as done
+            epic = None
+            for t in all_tickets:
+                if t.get('type') == 'epic':
+                    epic_id = str(t.get('_id') or t.get('id') or '')
+                    if epic_id == parent_id_str:
+                        epic = t
+                        break
+            
+            if epic:
+                epic_id = str(epic.get('_id') or epic.get('id'))
+                # Update epic status without checking epic completion (to avoid recursion)
+                self.update_ticket_status(epic_id, "done", check_epic_completion=False)
+                print(f"✅ Epic '{epic.get('title')}' marked as DONE (all stories completed).")
 
     def _save_local_ticket(self, ticket: Dict):
         with open(self.local_file, 'r') as f:
