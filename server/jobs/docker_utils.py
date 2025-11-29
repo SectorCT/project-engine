@@ -5,6 +5,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple, Union
 import docker
 from docker.errors import APIError, NotFound
 from django.conf import settings
+from agentLoop.systems.docker_env import get_port_for_project
 
 
 class ContainerNotFound(Exception):
@@ -102,6 +103,16 @@ def start_container(project_id: str) -> None:
         container.start()
     except APIError as exc:
         raise DockerCommandError(f'Failed to start container {container_name}: {exc}') from exc
+
+
+def get_project_host_port(project_id: str) -> int:
+    """
+    Return the host port bound to the project's internal port 3000.
+
+    Uses the same deterministic hashing logic as DockerEnv to ensure
+    the router points to the correct exposed port.
+    """
+    return get_port_for_project(project_id)
 
 
 def ensure_container_running(container: docker.models.containers.Container) -> None:
