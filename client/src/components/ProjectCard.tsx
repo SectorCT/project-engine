@@ -70,14 +70,14 @@ export const ProjectCard = ({
       className="relative"
     >
       <Card 
-        className="glass h-full transition-smooth hover:glow-primary cursor-pointer"
+        className="glass glow-card h-full transition-all duration-300 cursor-pointer group border-border/50"
         onClick={() => navigate(`/project/${id}`)}
       >
         <CardContent className="p-6">
-          <div className="flex items-start justify-between mb-4">
-            <h3 className="text-lg font-semibold text-foreground flex-1 pr-2">{name}</h3>
-            <div className="flex items-center gap-2">
-              <Badge className={cn("border", statusColors[status])}>
+          <div className="flex items-start justify-between mb-5">
+            <h3 className="text-lg font-semibold text-foreground flex-1 pr-2 group-hover:text-primary transition-colors line-clamp-2">{name}</h3>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Badge className={cn("border font-medium", statusColors[status])}>
                 {status.charAt(0).toUpperCase() + status.slice(1)}
               </Badge>
               {onDelete && (
@@ -113,13 +113,13 @@ export const ProjectCard = ({
                 <Badge
                   key={index}
                   variant="outline"
-                  className="text-xs bg-muted/50"
+                  className="text-xs bg-muted/30 border-border/50 font-normal"
                 >
                   {tech}
                 </Badge>
               ))}
               {techStack.length > 4 && (
-                <Badge variant="outline" className="text-xs bg-muted/50">
+                <Badge variant="outline" className="text-xs bg-muted/30 border-border/50 font-normal">
                   +{techStack.length - 4}
                 </Badge>
               )}
@@ -131,15 +131,15 @@ export const ProjectCard = ({
           </div>
         </CardContent>
 
-        <CardFooter className="p-6 pt-0 flex flex-col gap-2">
+        <CardFooter className="p-6 pt-0 flex flex-col gap-3 border-t border-border/30 mt-4">
           <div className="w-full">
-            <div className="flex justify-between text-xs text-muted-foreground mb-1">
+            <div className="flex justify-between text-xs font-medium text-muted-foreground mb-2">
               <span>Progress</span>
-              <span>{progress}%</span>
+              <span className="text-foreground">{progress}%</span>
             </div>
             <Progress
               value={progress}
-              className="h-2"
+              className="h-2 bg-muted/50"
               indicatorClassName={progressColors[status]}
             />
           </div>

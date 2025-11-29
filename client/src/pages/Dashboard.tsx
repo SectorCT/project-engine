@@ -87,9 +87,9 @@ export default function Dashboard() {
       <div className="flex-1 p-6 lg:p-8">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold">Your Projects</h1>
-            <p className="text-muted-foreground">
+          <div className="space-y-3 mb-2">
+            <h1 className="text-4xl font-bold tracking-tight">Your Projects</h1>
+            <p className="text-muted-foreground text-base">
               Build, manage, and deploy AI-powered applications
             </p>
           </div>
@@ -97,12 +97,12 @@ export default function Dashboard() {
           {/* Action Bar */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1 sm:w-64">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
               <Input
                 placeholder="Search projects..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-input/50 border-border/50 focus:border-border focus:ring-2 focus:ring-ring/20 transition-all"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -120,7 +120,7 @@ export default function Dashboard() {
             </Select>
             <Button
               onClick={() => navigate("/create")}
-              className="w-full sm:w-auto bg-gradient-primary hover:opacity-90 text-white"
+              className="w-full sm:w-auto bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200"
             >
               <Plus className="w-4 h-4 mr-2" />
               New Project
@@ -129,7 +129,8 @@ export default function Dashboard() {
 
         {/* Projects Grid */}
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="w-12 h-12 border-2 border-border border-t-primary rounded-full animate-spin mb-4"></div>
             <p className="text-muted-foreground">Loading projects...</p>
           </div>
         ) : filteredProjects.length > 0 ? (
@@ -146,15 +147,21 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <h2 className="text-2xl font-semibold mb-2">No projects found</h2>
-            <p className="text-muted-foreground mb-6">
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="w-16 h-16 rounded-full bg-muted/30 border border-border/30 flex items-center justify-center mb-6">
+              <Search className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h2 className="text-2xl font-semibold mb-3">No projects found</h2>
+            <p className="text-muted-foreground mb-8 max-w-md">
               {searchQuery || statusFilter !== "all"
                 ? "Try adjusting your search or filters"
                 : "Create your first project to get started"}
             </p>
             {!searchQuery && statusFilter === "all" && (
-              <Button onClick={() => navigate("/create")}>
+              <Button 
+                onClick={() => navigate("/create")}
+                className="bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create Project
               </Button>

@@ -24,7 +24,7 @@ const particleVariants = {
 
 const Particle = ({ delay = 0 }: { delay?: number }) => (
   <motion.div
-    className="absolute w-2 h-2 bg-primary rounded-full"
+    className="absolute w-2 h-2 bg-foreground/20 rounded-full"
     variants={particleVariants}
     animate="animate"
     transition={{ delay }}
@@ -61,12 +61,18 @@ export default function Login() {
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-gradient-dark">
       {/* Left Panel - Animated Background */}
       <div className="relative hidden lg:flex items-center justify-center p-12 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-primary opacity-10"></div>
+        <div className="absolute inset-0 bg-foreground/5"></div>
         {Array.from({ length: 20 }).map((_, i) => (
           <Particle key={i} delay={i * 0.1} />
         ))}
         <div className="relative z-10 text-center space-y-6">
-          <h1 className="text-5xl font-bold text-gradient">Project-Engine</h1>
+          <div className="flex justify-center mb-4">
+            <img 
+              src="/logo.png" 
+              alt="Project Engine" 
+              className="h-16 w-auto"
+            />
+          </div>
           <p className="text-xl text-foreground/80">
             Watch AI Build Your Ideas in Real-Time
           </p>
@@ -85,9 +91,13 @@ export default function Login() {
           className="w-full max-w-md"
         >
           <div className="lg:hidden text-center mb-8">
-            <h1 className="text-4xl font-bold text-gradient mb-2">
-              Project-Engine
-            </h1>
+            <div className="flex justify-center mb-4">
+              <img 
+                src="/logo.png" 
+                alt="Project Engine" 
+                className="h-12 w-auto"
+              />
+            </div>
             <p className="text-muted-foreground">
               Watch AI Build Your Ideas in Real-Time
             </p>
