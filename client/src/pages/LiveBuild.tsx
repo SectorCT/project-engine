@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AgentPanel } from "@/components/build/AgentPanel";
 import { TabbedViewPanel } from "@/components/build/TabbedViewPanel";
@@ -16,6 +17,10 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api, JobMessage, JobStep } from "@/lib/api";
+import { useWebSocket, WebSocketMessage } from "@/hooks/useWebSocket";
+import { mapServerStatusToClient, formatTimeAgo, ClientJobStatus } from "@/lib/jobUtils";
+import { toast } from "sonner";
 
 interface Tab {
   id: string;
@@ -42,6 +47,150 @@ export default function LiveBuild() {
     },
   ]);
   const [activeTabId, setActiveTabId] = useState<string>("preview");
+  const [messages, setMessages] = useState<JobMessage[]>([]);
+  const [steps, setSteps] = useState<JobStep[]>([]);
+  const [appSpec, setAppSpec] = useState<any>(null);
+
+  // Fetch job data
+  const { data: job, isLoading, error, refetch } = useQuery({
+    queryKey: ['job', id],
+    queryFn: () => api.getJob(id!),
+    enabled: !!id,
+  });
+
+  // Fetch app data when job is done
+  const { data: app } = useQuery({
+    queryKey: ['app', id],
+    queryFn: () => api.getAppByJob(id!),
+    enabled: !!id && job?.status === 'done',
+  });
+
+  // Update app spec when app data changes
+  useEffect(() => {
+    if (app?.spec) {
+      setAppSpec(app.spec);
+      // Add app spec tab if it doesn't exist
+      setTabs(prev => {
+        const specTabExists = prev.find(tab => tab.id === 'app-spec');
+        if (!specTabExists) {
+          return [...prev, {
+            id: 'app-spec',
+            type: 'code' as const,
+            label: 'App Spec',
+            content: JSON.stringify(app.spec, null, 2),
+            closable: true,
+          }];
+        }
+        return prev;
+      });
+    }
+  }, [app]);
+
+  // Connect WebSocket
+  const { isConnected, sendMessage } = useWebSocket({
+    jobId: id || '',
+    enabled: !!id && !isPaused,
+    onMessage: (message: WebSocketMessage) => {
+      handleWebSocketMessage(message);
+    },
+    onError: (error) => {
+      console.error('WebSocket error:', error);
+    },
+  });
+
+  // Load initial messages
+  useEffect(() => {
+    if (id) {
+      api.getJobMessages(id)
+        .then((msgs) => setMessages(msgs))
+        .catch((err) => console.error('Failed to load messages:', err));
+    }
+  }, [id]);
+
+  // Update messages and steps when job data changes
+  useEffect(() => {
+    if (job) {
+      if (job.messages) {
+        setMessages(job.messages);
+      }
+      if (job.steps) {
+        setSteps(job.steps);
+      }
+    }
+  }, [job]);
+
+  const handleWebSocketMessage = (message: WebSocketMessage) => {
+    switch (message.kind) {
+      case 'chat':
+        // Add new message to the list
+        if (message.role && message.content) {
+          const newMessage: JobMessage = {
+            id: `temp-${Date.now()}`,
+            role: message.role,
+            sender: message.sender || '',
+            content: message.content,
+            metadata: message.metadata || {},
+            created_at: message.timestamp || new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, newMessage]);
+        }
+        // Refetch job to get the persisted message
+        refetch();
+        break;
+      case 'status':
+        // Refetch job to get updated status
+        refetch();
+        break;
+      case 'step':
+        // Add new step
+        if (message.agent && message.message) {
+          const newStep: JobStep = {
+            id: `temp-${Date.now()}`,
+            agent_name: message.agent,
+            message: message.message,
+            order: message.order || steps.length + 1,
+            created_at: message.timestamp || new Date().toISOString(),
+          };
+          setSteps((prev) => [...prev, newStep]);
+        }
+        // Refetch job to get the persisted step
+        refetch();
+        break;
+      case 'app':
+        // Job is complete, update app spec
+        if (message.spec) {
+          setAppSpec(message.spec);
+          // Add app spec tab if it doesn't exist
+          setTabs(prev => {
+            const specTabExists = prev.find(tab => tab.id === 'app-spec');
+            if (!specTabExists) {
+              return [...prev, {
+                id: 'app-spec',
+                type: 'code' as const,
+                label: 'App Spec',
+                content: JSON.stringify(message.spec, null, 2),
+                closable: true,
+              }];
+            }
+            return prev;
+          });
+        }
+        refetch();
+        toast.success('Project completed!');
+        break;
+      case 'error':
+        toast.error(message.message || 'An error occurred');
+        break;
+    }
+  };
+
+  const handleSendMessage = (content: string) => {
+    if (isConnected && sendMessage) {
+      sendMessage({ kind: 'chat', content });
+    } else {
+      toast.error('WebSocket not connected');
+    }
+  };
 
   const handleFileClick = (filePath: string, fileName: string) => {
     // Check if tab already exists
@@ -76,9 +225,29 @@ export default function LiveBuild() {
     }
   };
 
-  const projectName = "Task Management App";
-  const status = "building";
-  const timeElapsed = "15 minutes ago";
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Loading project...</p>
+      </div>
+    );
+  }
+
+  if (error || !job) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-destructive mb-4">Failed to load project</p>
+          <Button onClick={() => navigate("/dashboard")}>Go to Dashboard</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const projectName = job.initial_prompt.substring(0, 50) + (job.initial_prompt.length > 50 ? '...' : '');
+  const status = mapServerStatusToClient(job.status);
+  const timeElapsed = formatTimeAgo(job.created_at);
+  const canSendMessages = job.status === 'collecting';
 
   const statusColors = {
     planning: "bg-status-planning/10 text-status-planning border-status-planning/20",
@@ -177,7 +346,7 @@ export default function LiveBuild() {
             animate={{ opacity: 1, y: 0 }}
             className="col-span-12 md:col-span-4 hidden md:block"
           >
-            <StatusPanel />
+            <StatusPanel job={job} steps={steps} />
           </motion.div>
 
           <motion.div
@@ -185,7 +354,12 @@ export default function LiveBuild() {
             animate={{ opacity: 1, y: 0 }}
             className="col-span-12 md:col-span-8"
           >
-            <AgentPanel />
+            <AgentPanel
+              messages={messages}
+              steps={steps}
+              onSendMessage={handleSendMessage}
+              canSendMessages={canSendMessages}
+            />
           </motion.div>
 
           {/* Mobile: Show Architecture */}

@@ -3,7 +3,16 @@ import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Trash2, MoreVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 interface ProjectCardProps {
   id: string;
@@ -13,6 +22,7 @@ interface ProjectCardProps {
   techStack: string[];
   createdAt: string;
   lastActivity: string;
+  onDelete?: (id: string) => void;
 }
 
 const statusColors = {
@@ -39,23 +49,62 @@ export const ProjectCard = ({
   techStack,
   createdAt,
   lastActivity,
+  onDelete,
 }: ProjectCardProps) => {
   const navigate = useNavigate();
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDelete) {
+      setIsDeleting(true);
+      await onDelete(id);
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      onClick={() => navigate(`/project/${id}`)}
-      className="cursor-pointer"
+      className="relative"
     >
-      <Card className="glass h-full transition-smooth hover:glow-primary">
+      <Card 
+        className="glass h-full transition-smooth hover:glow-primary cursor-pointer"
+        onClick={() => navigate(`/project/${id}`)}
+      >
         <CardContent className="p-6">
           <div className="flex items-start justify-between mb-4">
-            <h3 className="text-lg font-semibold text-foreground">{name}</h3>
-            <Badge className={cn("border", statusColors[status])}>
-              {status.charAt(0).toUpperCase() + status.slice(1)}
-            </Badge>
+            <h3 className="text-lg font-semibold text-foreground flex-1 pr-2">{name}</h3>
+            <div className="flex items-center gap-2">
+              <Badge className={cn("border", statusColors[status])}>
+                {status.charAt(0).toUpperCase() + status.slice(1)}
+              </Badge>
+              {onDelete && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                      className="text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      {isDeleting ? "Deleting..." : "Delete"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3">

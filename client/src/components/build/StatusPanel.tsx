@@ -4,89 +4,42 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, Circle, Clock, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Job, JobStep } from "@/lib/api";
+import { calculateProgress, formatTimeAgo } from "@/lib/jobUtils";
 
-interface Agent {
-  id: string;
-  name: string;
-  role: "analyst" | "manager" | "architect" | "developer" | "qa";
-  status: "idle" | "working" | "waiting" | "complete";
-  currentTask?: string;
+interface StatusPanelProps {
+  job?: Job;
+  steps?: JobStep[];
 }
 
-interface ActivityEvent {
-  id: string;
-  type: "info" | "success" | "warning" | "error";
-  message: string;
-  timestamp: string;
+function getAgentStatus(job: Job | undefined, agentName: string): "idle" | "working" | "waiting" | "complete" {
+  if (!job) return "idle";
+  
+  if (job.status === "done") return "complete";
+  if (job.status === "failed") return "idle";
+  
+  // Check if this agent has recent steps
+  const recentSteps = job.steps?.filter(step => step.agent_name === agentName) || [];
+  if (recentSteps.length > 0) {
+    const lastStep = recentSteps[recentSteps.length - 1];
+    const stepTime = new Date(lastStep.created_at).getTime();
+    const now = Date.now();
+    const fiveMinutesAgo = now - 5 * 60 * 1000;
+    
+    if (stepTime > fiveMinutesAgo) {
+      return "working";
+    }
+    return "complete";
+  }
+  
+  if (job.status === "running") return "waiting";
+  return "idle";
 }
 
-const mockAgents: Agent[] = [
-  {
-    id: "1",
-    name: "Sarah",
-    role: "analyst",
-    status: "idle",
-  },
-  {
-    id: "2",
-    name: "Mike",
-    role: "manager",
-    status: "working",
-    currentTask: "Coordinating tasks",
-  },
-  {
-    id: "3",
-    name: "Alex",
-    role: "architect",
-    status: "complete",
-  },
-  {
-    id: "4",
-    name: "Jordan",
-    role: "developer",
-    status: "working",
-    currentTask: "Building components",
-  },
-  {
-    id: "5",
-    name: "Casey",
-    role: "qa",
-    status: "waiting",
-  },
-];
-
-const mockActivity: ActivityEvent[] = [
-  {
-    id: "1",
-    type: "success",
-    message: "Component 'UserDashboard' created successfully",
-    timestamp: "2:45 PM",
-  },
-  {
-    id: "2",
-    type: "success",
-    message: "All tests passed (12/12)",
-    timestamp: "2:44 PM",
-  },
-  {
-    id: "3",
-    type: "info",
-    message: "Installing dependency: axios@1.5.0",
-    timestamp: "2:43 PM",
-  },
-  {
-    id: "4",
-    type: "success",
-    message: "Database schema created",
-    timestamp: "2:42 PM",
-  },
-  {
-    id: "5",
-    type: "info",
-    message: "Architecture document completed",
-    timestamp: "2:40 PM",
-  },
-];
+function formatTimestamp(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
 
 const agentRoleNames = {
   analyst: "Analyst",
@@ -127,10 +80,32 @@ const StatusIndicator = ({ status }: { status: Agent["status"] }) => {
   }
 };
 
-export const StatusPanel = () => {
-  const overallProgress = 68;
-  const timeElapsed = "15 minutes";
-  const costSpent = "$2.34";
+export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
+  const overallProgress = job ? calculateProgress(job) : 0;
+  const timeElapsed = job ? formatTimeAgo(job.created_at) : "0 minutes";
+  const costSpent = "$0.00"; // TODO: Calculate from actual usage
+
+  // Extract unique agents from steps
+  const agentNames = Array.from(new Set(steps.map(step => step.agent_name)));
+  const agents = agentNames.map((name, idx) => ({
+    id: `agent-${idx}`,
+    name,
+    role: name.toLowerCase().includes("ceo") ? "manager" as const :
+          name.toLowerCase().includes("cto") ? "architect" as const :
+          name.toLowerCase().includes("client") ? "analyst" as const :
+          name.toLowerCase().includes("secretary") ? "qa" as const :
+          "developer" as const,
+    status: getAgentStatus(job, name),
+    currentTask: steps.find(s => s.agent_name === name)?.message.substring(0, 50) + "...",
+  }));
+
+  // Create activity log from steps
+  const activity = steps.slice(-10).reverse().map((step, idx) => ({
+    id: step.id,
+    type: "info" as const,
+    message: `${step.agent_name}: ${step.message.substring(0, 60)}${step.message.length > 60 ? '...' : ''}`,
+    timestamp: formatTimestamp(step.created_at),
+  }));
 
   return (
     <Card className="glass flex flex-col">
@@ -186,7 +161,12 @@ export const StatusPanel = () => {
           <div className="space-y-2">
             <h3 className="text-xs font-semibold">Active Agents</h3>
             <div className="space-y-1.5">
-              {mockAgents.map((agent) => (
+              {agents.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-4">
+                  No active agents
+                </div>
+              ) : (
+                agents.map((agent) => (
                 <div
                   key={agent.id}
                   className="flex items-center gap-2 p-1.5 rounded-lg bg-muted/30 border border-border"
@@ -209,7 +189,8 @@ export const StatusPanel = () => {
                     <CheckCircle2 className="w-3 h-3 text-success flex-shrink-0" />
                   )}
                 </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -217,7 +198,12 @@ export const StatusPanel = () => {
           <div className="space-y-2">
             <h3 className="text-xs font-semibold">Activity Log</h3>
             <div className="space-y-1.5">
-              {mockActivity.map((event) => (
+              {activity.length === 0 ? (
+                <div className="text-center text-xs text-muted-foreground py-4">
+                  No activity yet
+                </div>
+              ) : (
+                activity.map((event) => (
                 <div
                   key={event.id}
                   className="flex items-start gap-1.5 text-xs p-1.5 rounded-lg bg-muted/30 border border-border"
@@ -240,7 +226,8 @@ export const StatusPanel = () => {
                     </p>
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>

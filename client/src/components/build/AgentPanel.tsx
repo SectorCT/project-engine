@@ -5,83 +5,89 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { Search, MessageSquare } from "lucide-react";
+import { Search, MessageSquare, Send } from "lucide-react";
+import { JobMessage, JobStep } from "@/lib/api";
 
 interface AgentMessage {
   id: string;
-  agentRole: "analyst" | "manager" | "architect" | "developer" | "qa";
+  agentRole: "analyst" | "manager" | "architect" | "developer" | "qa" | "user";
   agentName: string;
   content: string;
   timestamp: string;
   isDecision?: boolean;
   category?: "planning" | "development" | "testing";
+  role?: "user" | "agent" | "system";
 }
 
-const agentColors = {
+interface AgentPanelProps {
+  messages?: JobMessage[];
+  steps?: JobStep[];
+  onSendMessage?: (content: string) => void;
+  canSendMessages?: boolean;
+}
+
+const agentColors: Record<string, string> = {
   analyst: "bg-agent-analyst",
   manager: "bg-agent-manager",
   architect: "bg-agent-architect",
   developer: "bg-agent-developer",
   qa: "bg-agent-qa",
+  user: "bg-muted",
+  "Client Relations": "bg-agent-analyst",
+  "CEO": "bg-agent-manager",
+  "CTO": "bg-agent-architect",
+  "Secretary": "bg-agent-qa",
 };
 
-const agentNames = {
+const agentNames: Record<string, string> = {
   analyst: "Analyst",
   manager: "Manager",
   architect: "Architect",
   developer: "Developer",
   qa: "QA",
+  user: "You",
 };
 
-const mockMessages: AgentMessage[] = [
-  {
-    id: "1",
-    agentRole: "analyst",
-    agentName: "Sarah",
-    content: "Analyzing project requirements and user stories...",
-    timestamp: "2:34 PM",
-    category: "planning",
-  },
-  {
-    id: "2",
-    agentRole: "manager",
-    agentName: "Mike",
-    content: "Breaking down the project into 5 main components and 12 tasks",
-    timestamp: "2:35 PM",
-    isDecision: true,
-    category: "planning",
-  },
-  {
-    id: "3",
-    agentRole: "architect",
-    agentName: "Alex",
-    content: "Designing system architecture with microservices pattern",
-    timestamp: "2:36 PM",
-    category: "planning",
-  },
-  {
-    id: "4",
-    agentRole: "developer",
-    agentName: "Jordan",
-    content: "Creating UserDashboard component with authentication flow",
-    timestamp: "2:38 PM",
-    category: "development",
-  },
-  {
-    id: "5",
-    agentRole: "qa",
-    agentName: "Casey",
-    content: "Running test suite... All 12 tests passed ✓",
-    timestamp: "2:40 PM",
-    category: "testing",
-  },
-];
+function mapAgentNameToRole(agentName: string): AgentMessage["agentRole"] {
+  const name = agentName.toLowerCase();
+  if (name.includes("client") || name.includes("relations")) return "analyst";
+  if (name.includes("ceo") || name.includes("manager")) return "manager";
+  if (name.includes("cto") || name.includes("architect")) return "architect";
+  if (name.includes("secretary") || name.includes("qa")) return "qa";
+  return "developer";
+}
 
-export const AgentPanel = () => {
-  const [messages] = useState<AgentMessage[]>(mockMessages);
+function formatTimestamp(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMessages = false }: AgentPanelProps) => {
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [inputValue, setInputValue] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Combine messages and steps into a unified list
+  const allMessages: AgentMessage[] = [
+    ...messages.map((msg) => ({
+      id: msg.id,
+      agentRole: msg.role === "user" ? "user" : mapAgentNameToRole(msg.sender),
+      agentName: msg.sender || (msg.role === "user" ? "You" : "Agent"),
+      content: msg.content,
+      timestamp: formatTimestamp(msg.created_at),
+      role: msg.role,
+      category: msg.metadata?.stage === "requirements" ? "planning" : undefined,
+    })),
+    ...steps.map((step) => ({
+      id: step.id,
+      agentRole: mapAgentNameToRole(step.agent_name),
+      agentName: step.agent_name,
+      content: step.message,
+      timestamp: formatTimestamp(step.created_at),
+      category: "development" as const,
+    })),
+  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -89,7 +95,7 @@ export const AgentPanel = () => {
     }
   }, [messages]);
 
-  const filteredMessages = messages.filter((msg) => {
+  const filteredMessages = allMessages.filter((msg) => {
     const matchesFilter =
       filter === "all" ||
       filter === msg.category ||
@@ -99,6 +105,13 @@ export const AgentPanel = () => {
       .includes(searchQuery.toLowerCase());
     return matchesFilter && matchesSearch;
   });
+
+  const handleSend = () => {
+    if (inputValue.trim() && onSendMessage) {
+      onSendMessage(inputValue.trim());
+      setInputValue("");
+    }
+  };
 
   const getInitials = (name: string) => name.charAt(0).toUpperCase();
 
@@ -139,7 +152,12 @@ export const AgentPanel = () => {
 
       <ScrollArea className="flex-1 p-2">
         <div ref={scrollRef} className="space-y-2">
-          {filteredMessages.map((message) => (
+          {filteredMessages.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              No messages yet
+            </div>
+          ) : (
+            filteredMessages.map((message) => (
             <div
               key={message.id}
               className="flex gap-2 animate-fade-in"
@@ -147,7 +165,7 @@ export const AgentPanel = () => {
               <div
                 className={cn(
                   "w-6 h-6 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0 text-xs",
-                  agentColors[message.agentRole]
+                    agentColors[message.agentRole] || agentColors[message.agentName] || "bg-muted"
                 )}
               >
                 {getInitials(message.agentName)}
@@ -157,9 +175,11 @@ export const AgentPanel = () => {
                   <span className="font-semibold text-xs">
                     {message.agentName}
                   </span>
+                    {message.agentRole !== "user" && (
                   <span className="text-[10px] text-muted-foreground">
-                    • {agentNames[message.agentRole]}
+                        • {agentNames[message.agentRole] || message.agentName}
                   </span>
+                    )}
                   {message.isDecision && (
                     <Badge
                       variant="outline"
@@ -169,7 +189,7 @@ export const AgentPanel = () => {
                     </Badge>
                   )}
                 </div>
-                <p className="text-xs text-foreground mb-0.5">
+                  <p className="text-xs text-foreground mb-0.5 whitespace-pre-wrap">
                   {message.content}
                 </p>
                 <span className="text-[10px] text-muted-foreground">
@@ -177,9 +197,37 @@ export const AgentPanel = () => {
                 </span>
               </div>
             </div>
-          ))}
+            ))
+          )}
         </div>
       </ScrollArea>
+
+      {canSendMessages && onSendMessage && (
+        <div className="p-2 border-t border-border">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Type your message..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              className="h-8 text-xs"
+            />
+            <Button
+              size="sm"
+              onClick={handleSend}
+              disabled={!inputValue.trim()}
+              className="h-8"
+            >
+              <Send className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      )}
     </Card>
   );
 };

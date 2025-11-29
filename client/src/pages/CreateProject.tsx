@@ -19,6 +19,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Sparkles, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface ProjectFormData {
   name: string;
@@ -80,9 +82,47 @@ export default function CreateProject() {
     }
   };
 
-  const handleLaunch = () => {
-    // Mock project creation - navigate to live build
-    navigate("/project/1");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleLaunch = async () => {
+    if (!formData.description.trim()) {
+      toast.error("Please provide a project description");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // Build a comprehensive prompt from the form data
+      let prompt = formData.description;
+      
+      // Add configuration details to the prompt
+      if (formData.platform) {
+        prompt += `\n\nPlatform: ${formData.platform}`;
+      }
+      if (formData.complexity) {
+        prompt += `\n\nComplexity: ${formData.complexity}`;
+      }
+      if (formData.techStack.frontend.length > 0) {
+        prompt += `\n\nPreferred Frontend: ${formData.techStack.frontend.join(', ')}`;
+      }
+      if (formData.techStack.backend.length > 0) {
+        prompt += `\n\nPreferred Backend: ${formData.techStack.backend.join(', ')}`;
+      }
+      if (formData.techStack.database.length > 0) {
+        prompt += `\n\nPreferred Database: ${formData.techStack.database.join(', ')}`;
+      }
+      if (formData.features.length > 0) {
+        prompt += `\n\nRequired Features: ${formData.features.join(', ')}`;
+      }
+
+      const job = await api.createJob(prompt);
+      toast.success("Project created successfully!");
+      navigate(`/project/${job.id}`);
+    } catch (error: any) {
+      toast.error(error?.detail || error?.message || "Failed to create project");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleTechStack = (
@@ -536,9 +576,10 @@ export default function CreateProject() {
                   onClick={handleLaunch} 
                   size="default"
                   className="bg-gradient-primary hover:opacity-90 text-white"
+                  disabled={isSubmitting}
                 >
                   <Sparkles className="w-4 h-4 mr-2" />
-                  Start Building
+                  {isSubmitting ? "Creating..." : "Start Building"}
                 </Button>
               )}
             </div>

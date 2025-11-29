@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
 import { ProjectCard } from "@/components/ProjectCard";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -13,62 +14,65 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Search, Filter } from "lucide-react";
+import { api } from "@/lib/api";
+import { mapServerStatusToClient, calculateProgress, formatTimeAgo, extractTechStack, ClientJobStatus } from "@/lib/jobUtils";
+import { toast } from "sonner";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface Project {
   id: string;
   name: string;
-  status: "planning" | "building" | "testing" | "complete" | "failed";
+  status: ClientJobStatus;
   progress: number;
   techStack: string[];
   createdAt: string;
   lastActivity: string;
 }
 
-const mockProjects: Project[] = [
-  {
-    id: "1",
-    name: "E-commerce Platform",
-    status: "building",
-    progress: 68,
-    techStack: ["React", "Node.js", "PostgreSQL", "Stripe"],
-    createdAt: "2024-01-15",
-    lastActivity: "2 hours ago",
-  },
-  {
-    id: "2",
-    name: "Task Management App",
-    status: "complete",
-    progress: 100,
-    techStack: ["React", "Firebase", "Tailwind"],
-    createdAt: "2024-01-10",
-    lastActivity: "1 day ago",
-  },
-  {
-    id: "3",
-    name: "Social Dashboard",
-    status: "testing",
-    progress: 85,
-    techStack: ["Next.js", "PostgreSQL", "Redis"],
-    createdAt: "2024-01-12",
-    lastActivity: "30 minutes ago",
-  },
-  {
-    id: "4",
-    name: "Blog Platform",
-    status: "planning",
-    progress: 15,
-    techStack: ["Vue", "Express", "MongoDB"],
-    createdAt: "2024-01-18",
-    lastActivity: "5 minutes ago",
-  },
-];
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  const filteredProjects = mockProjects.filter((project) => {
+  const queryClient = useQueryClient();
+  
+  const { data: jobs, isLoading, error } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: () => api.getJobs(),
+  });
+
+  const deleteJobMutation = useMutation({
+    mutationFn: (jobId: string) => api.deleteJob(jobId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      toast.success("Job deleted successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.detail || "Failed to delete job");
+    },
+  });
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (window.confirm("Are you sure you want to delete this project? This action cannot be undone.")) {
+      await deleteJobMutation.mutateAsync(jobId);
+    }
+  };
+
+  if (error) {
+    toast.error("Failed to load jobs");
+  }
+
+  const projects: Project[] = (jobs || []).map((job) => ({
+    id: job.id,
+    name: job.initial_prompt.substring(0, 50) + (job.initial_prompt.length > 50 ? '...' : ''),
+    status: mapServerStatusToClient(job.status),
+    progress: calculateProgress(job),
+    techStack: extractTechStack(job),
+    createdAt: job.created_at,
+    lastActivity: formatTimeAgo(job.updated_at),
+  }));
+
+  const filteredProjects = projects.filter((project) => {
     const matchesSearch = project.name
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
@@ -124,7 +128,11 @@ export default function Dashboard() {
           </div>
 
         {/* Projects Grid */}
-        {filteredProjects.length > 0 ? (
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <p className="text-muted-foreground">Loading projects...</p>
+          </div>
+        ) : filteredProjects.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredProjects.map((project, index) => (
               <motion.div
@@ -133,7 +141,7 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
               >
-                <ProjectCard {...project} />
+                <ProjectCard {...project} onDelete={handleDeleteJob} />
               </motion.div>
             ))}
           </div>

@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +8,46 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { User, Mail, Calendar, Save, LogOut } from "lucide-react";
+import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 export default function Profile() {
+  const { user: authUser, logout } = useAuth();
+  const { data: user, isLoading } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => api.getCurrentUser(),
+  });
+
+  const displayUser = user || authUser;
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "N/A";
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+  };
+
+  const getInitials = (name?: string, email?: string) => {
+    if (name) {
+      return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    }
+    if (email) {
+      return email[0].toUpperCase();
+    }
+    return 'U';
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Navbar />
+        <div className="flex-1 p-6 lg:p-8 flex items-center justify-center">
+          <p className="text-muted-foreground">Loading profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
@@ -27,15 +67,15 @@ export default function Profile() {
               <Card className="glass">
                 <CardContent className="p-6">
                   <div className="flex flex-col items-center space-y-4">
-                    <div className="w-24 h-24 rounded-full bg-gradient-primary flex items-center justify-center">
-                      <User className="w-12 h-12 text-white" />
+                    <div className="w-24 h-24 rounded-full bg-gradient-primary flex items-center justify-center text-2xl font-bold text-white">
+                      {getInitials(displayUser?.name, displayUser?.email)}
                     </div>
                     <div className="text-center">
-                      <h2 className="text-xl font-semibold">John Doe</h2>
-                      <p className="text-sm text-muted-foreground">john.doe@example.com</p>
+                      <h2 className="text-xl font-semibold">{displayUser?.name || "User"}</h2>
+                      <p className="text-sm text-muted-foreground">{displayUser?.email}</p>
                     </div>
                     <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                      Pro Plan
+                      Active
                     </Badge>
                   </div>
                 </CardContent>
@@ -50,14 +90,14 @@ export default function Profile() {
                     <Mail className="w-4 h-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground">Email</p>
-                      <p className="font-medium">john.doe@example.com</p>
+                      <p className="font-medium">{displayUser?.email || "N/A"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3 text-sm">
                     <Calendar className="w-4 h-4 text-muted-foreground" />
                     <div>
-                      <p className="text-muted-foreground">Member since</p>
-                      <p className="font-medium">January 2024</p>
+                      <p className="text-muted-foreground">User ID</p>
+                      <p className="font-medium font-mono text-xs">{displayUser?.id || "N/A"}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -71,35 +111,19 @@ export default function Profile() {
                   <CardTitle>Personal Information</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName">First Name</Label>
-                      <Input id="firstName" defaultValue="John" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastName">Last Name</Label>
-                      <Input id="lastName" defaultValue="Doe" />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name</Label>
+                    <Input id="name" defaultValue={displayUser?.name || ""} disabled />
+                    <p className="text-xs text-muted-foreground">Name cannot be changed</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" defaultValue="john.doe@example.com" />
+                    <Input id="email" type="email" defaultValue={displayUser?.email || ""} disabled />
+                    <p className="text-xs text-muted-foreground">Email cannot be changed</p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="bio">Bio</Label>
-                    <Textarea
-                      id="bio"
-                      rows={4}
-                      placeholder="Tell us about yourself..."
-                      defaultValue="Software developer passionate about AI and automation."
-                    />
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                    <Button className="bg-gradient-primary hover:opacity-90 text-white">
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Changes
-                    </Button>
-                    <Button variant="outline">Cancel</Button>
+                    <Label htmlFor="userId">User ID</Label>
+                    <Input id="userId" defaultValue={displayUser?.id || ""} disabled className="font-mono text-xs" />
                   </div>
                 </CardContent>
               </Card>
@@ -129,17 +153,20 @@ export default function Profile() {
 
               <Card className="glass border-destructive/20">
                 <CardHeader>
-                  <CardTitle className="text-destructive">Danger Zone</CardTitle>
+                  <CardTitle className="text-destructive">Account Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">
-                      Once you delete your account, there is no going back. Please be certain.
+                      Sign out of your account. You will need to log in again to access your projects.
                     </p>
                     <div className="flex gap-3">
-                      <Button variant="destructive">
+                      <Button variant="destructive" onClick={() => {
+                        logout();
+                        toast.success("Logged out successfully");
+                      }}>
                         <LogOut className="w-4 h-4 mr-2" />
-                        Delete Account
+                        Logout
                       </Button>
                     </div>
                   </div>
