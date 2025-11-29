@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import hashlib
 from typing import List, Dict
 from agents.master_pm_agent import MasterPMAgent
 from agents.frontend_pm_agent import FrontendPMAgent
@@ -10,6 +11,27 @@ from systems.ticket_system import TicketSystem
 from systems.docker_env import DockerEnv
 from systems.project_initializer import ProjectInitializer
 from config.settings import settings
+
+def generate_project_id(prd_path: str = None, prd_content: str = None) -> str:
+    """
+    Generate a unique project ID from PRD.
+    Uses PRD content hash for consistency (same PRD = same project ID).
+    """
+    if prd_content:
+        # Hash the PRD content for consistent project IDs
+        content_hash = hashlib.md5(prd_content.encode('utf-8')).hexdigest()[:12]
+        return f"project_{content_hash}"
+    elif prd_path:
+        # Fallback: use filename and modification time
+        filename = os.path.basename(prd_path)
+        filename_base = os.path.splitext(filename)[0]
+        mtime = str(int(os.path.getmtime(prd_path)))
+        combined = f"{filename_base}_{mtime}"
+        content_hash = hashlib.md5(combined.encode('utf-8')).hexdigest()[:12]
+        return f"project_{content_hash}"
+    else:
+        # Last resort: timestamp-based
+        return f"project_{int(time.time())}"
 
 def build_phase(prd_path: str = None):
     """
@@ -43,13 +65,18 @@ def build_phase(prd_path: str = None):
 
     print(f"Found {len(todo_tickets)} tickets to resolve.")
 
-    # 2. Determine has_backend and has_frontend
-    # If PRD is provided, read it to determine structure
-    # Otherwise, infer from tickets
+    # 2. Determine has_backend and has_frontend, and generate project ID
+    prd_content = None
+    project_id = None
+    
     if prd_path and os.path.exists(prd_path):
         print(f"Reading PRD from: {prd_path} to determine project structure...")
         with open(prd_path, 'r') as f:
             prd_content = f.read()
+        
+        # Generate project ID from PRD
+        project_id = generate_project_id(prd_path=prd_path, prd_content=prd_content)
+        print(f"Project ID: {project_id}")
         
         # Simple heuristic: check PRD content for backend/frontend keywords
         prd_lower = prd_content.lower()
@@ -69,15 +96,19 @@ def build_phase(prd_path: str = None):
         if not has_backend and not has_frontend:
             has_backend = True
             has_frontend = True
+        
+        # Generate project ID from timestamp if no PRD
+        project_id = generate_project_id()
+        print(f"Project ID: {project_id} (generated from timestamp - no PRD provided)")
     
     print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
     
     # 3. Get project structure
     project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
     
-    # 4. Initialize Docker Env
+    # 4. Initialize Docker Env with project ID
     workspace_path = os.getcwd() # Not used for copying, but kept for compatibility
-    docker_env = DockerEnv(workspace_path)
+    docker_env = DockerEnv(workspace_path, project_id=project_id)
     
     try:
         docker_env.build_image()
@@ -163,21 +194,51 @@ def build_phase(prd_path: str = None):
                 
     finally:
         # Cleanup
-        # We explicitly do NOT stop the container as requested
-        print("\nKeeping container running as requested.")
-        print("Container port 3000 is exposed - frontend accessible at http://localhost:3000")
+        # We explicitly do NOT stop the container as requested - it persists for this project
+        container_name = docker_env.container_name
+        
+        # Get the actual ports from the container
+        frontend_port = 3000
+        mongodb_port = 6666
+        if docker_env.container:
+            try:
+                container_info = docker_env.container.attrs
+                port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
+                if '3000/tcp' in port_bindings:
+                    frontend_port = int(port_bindings['3000/tcp'][0]['HostPort'])
+                if '27017/tcp' in port_bindings:
+                    mongodb_port = int(port_bindings['27017/tcp'][0]['HostPort'])
+            except Exception:
+                pass  # Use defaults if we can't get port info
+        
+        print(f"\n✅ Keeping container '{container_name}' running (persistent).")
+        print(f"Container port 3000 is exposed - frontend accessible at http://localhost:{frontend_port}")
         if has_backend:
-            print("Container port 27017 is exposed on host port 6666 - MongoDB accessible at mongodb://localhost:6666")
-        print("You can inspect the container with: docker exec project_engine_builder_container ls -la /app")
+            print(f"Container port 27017 is exposed on host port {mongodb_port} - MongoDB accessible at mongodb://localhost:{mongodb_port}")
+        print(f"You can inspect the container with: docker exec {container_name} ls -la /app")
+        print(f"Container will persist and can be resumed on next build run.")
+        print(f"To stop the container: docker stop {container_name}")
+        print(f"To remove the container: docker rm {container_name}")
         # docker_env.stop_container()
 
 
-def init_structure_only():
+def init_structure_only(prd_path: str = None):
     """
     Initialize project structure in Docker and stop.
     Useful for testing the file structure creation.
+    
+    Args:
+        prd_path: Optional path to PRD file to generate project ID
     """
     print("\n--- Initializing Project Structure Only ---")
+    
+    # Generate project ID if PRD is provided
+    project_id = None
+    if prd_path and os.path.exists(prd_path):
+        with open(prd_path, 'r') as f:
+            prd_content = f.read()
+        project_id = generate_project_id(prd_path=prd_path, prd_content=prd_content)
+        print(f"Project ID: {project_id}")
     
     # Initialize Systems
     ticket_system = TicketSystem()
@@ -199,9 +260,9 @@ def init_structure_only():
     # Get project structure
     project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
     
-    # Initialize Docker Env
+    # Initialize Docker Env with project ID
     workspace_path = os.getcwd()
-    docker_env = DockerEnv(workspace_path)
+    docker_env = DockerEnv(workspace_path, project_id=project_id)
     
     try:
         print("Building Docker image...")
@@ -309,6 +370,10 @@ def main():
 
     with open(prd_path, 'r') as f:
         prd_content = f.read()
+
+    # Generate project ID from PRD
+    project_id = generate_project_id(prd_path=prd_path, prd_content=prd_content)
+    print(f"Project ID: {project_id}")
 
     # Initialize Systems
     ticket_system = TicketSystem()

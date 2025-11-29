@@ -10,11 +10,17 @@ const PORT = process.env.PORT || 3000;
 
 // Docker client
 const docker = new Docker();
-const CONTAINER_NAME = 'project_engine_builder_container';
 
-// File watching state
-let previousFileState = new Map(); // path -> { mtime, size }
-let isWatching = false;
+// Helper function to get container name from project_id
+function getContainerName(projectId) {
+    if (projectId) {
+        return `project_engine_${projectId}_container`;
+    }
+    return 'project_engine_builder_container'; // Default for backward compatibility
+}
+
+// File watching state (per project)
+let fileWatchers = new Map(); // projectId -> { previousFileState, isWatching, watchInterval }
 
 app.use(cors());
 app.use(express.json());
@@ -93,7 +99,9 @@ app.get('/api/tickets/:id', async (req, res) => {
 // Get file structure from Docker container
 app.get('/api/files/structure', async (req, res) => {
     try {
-        const container = docker.getContainer(CONTAINER_NAME);
+        const projectId = req.query.project_id || null;
+        const containerName = getContainerName(projectId);
+        const container = docker.getContainer(containerName);
         
         // Check if container exists and is running
         try {
@@ -262,7 +270,9 @@ app.get('/api/files/content', async (req, res) => {
             return res.status(400).json({ error: 'File path is required' });
         }
         
-        const container = docker.getContainer(CONTAINER_NAME);
+        const projectId = req.query.project_id || null;
+        const containerName = getContainerName(projectId);
+        const container = docker.getContainer(containerName);
         
         // Check if container exists and is running
         try {
@@ -317,9 +327,10 @@ app.get('/api/files/content', async (req, res) => {
  * Get current file state from Docker container
  * Returns a Map of file paths to { mtime, size }
  */
-async function getCurrentFileState() {
+async function getCurrentFileState(projectId) {
     try {
-        const container = docker.getContainer(CONTAINER_NAME);
+        const containerName = getContainerName(projectId);
+        const container = docker.getContainer(containerName);
         
         // Check if container exists and is running
         try {
@@ -415,27 +426,35 @@ function detectFileChanges(currentState, previousState) {
 }
 
 /**
- * Start file watching (polling-based)
+ * Start file watching (polling-based) for a specific project
  */
-function startFileWatcher() {
-    if (isWatching) return;
+function startFileWatcher(projectId) {
+    const watcherKey = projectId || 'default';
     
-    isWatching = true;
+    // Check if watcher already exists for this project
+    if (fileWatchers.has(watcherKey) && fileWatchers.get(watcherKey).isWatching) {
+        return; // Already watching
+    }
+    
     const POLL_INTERVAL = 2000; // Check every 2 seconds
+    const previousFileState = new Map();
+    let isWatching = true;
     
-    console.log('Starting file watcher for /app folder...');
+    console.log(`Starting file watcher for project: ${projectId || 'default'} (container: ${getContainerName(projectId)})...`);
     
     // Initial state
-    getCurrentFileState().then(state => {
+    getCurrentFileState(projectId).then(state => {
         if (state) {
-            previousFileState = state;
-            console.log(`File watcher initialized with ${state.size} files`);
+            for (const [path, info] of state.entries()) {
+                previousFileState.set(path, info);
+            }
+            console.log(`File watcher initialized with ${state.size} files for project: ${projectId || 'default'}`);
         }
     });
     
     // Poll for changes
     const watchInterval = setInterval(async () => {
-        const currentState = await getCurrentFileState();
+        const currentState = await getCurrentFileState(projectId);
         
         if (!currentState) {
             // Container not running, skip this check
@@ -448,30 +467,67 @@ function startFileWatcher() {
             // TO DO integrate with sockets
             for (const change of changes) {
                 if (change.type === 'created') {
-                    console.log(`[FILE CREATED] ${change.path} (size: ${change.size} bytes, mtime: ${new Date(change.mtime * 1000).toISOString()})`);
+                    console.log(`[${projectId || 'default'}] [FILE CREATED] ${change.path} (size: ${change.size} bytes, mtime: ${new Date(change.mtime * 1000).toISOString()})`);
                 } else if (change.type === 'modified') {
-                    console.log(`[FILE MODIFIED] ${change.path} (size: ${change.size} bytes, mtime: ${new Date(change.mtime * 1000).toISOString()})`);
+                    console.log(`[${projectId || 'default'}] [FILE MODIFIED] ${change.path} (size: ${change.size} bytes, mtime: ${new Date(change.mtime * 1000).toISOString()})`);
                 } else if (change.type === 'deleted') {
-                    console.log(`[FILE DELETED] ${change.path}`);
+                    console.log(`[${projectId || 'default'}] [FILE DELETED] ${change.path}`);
                 }
             }
         }
         
         // Update previous state
-        previousFileState = currentState;
+        previousFileState.clear();
+        for (const [path, info] of currentState.entries()) {
+            previousFileState.set(path, info);
+        }
     }, POLL_INTERVAL);
     
-    // Store interval ID for potential cleanup
+    // Store watcher state
+    fileWatchers.set(watcherKey, {
+        previousFileState,
+        isWatching,
+        watchInterval
+    });
+    
+    // Cleanup on exit
     process.on('SIGINT', () => {
-        clearInterval(watchInterval);
-        isWatching = false;
+        if (fileWatchers.has(watcherKey)) {
+            clearInterval(fileWatchers.get(watcherKey).watchInterval);
+            fileWatchers.delete(watcherKey);
+        }
     });
 }
+
+/**
+ * Stop file watcher for a specific project
+ */
+function stopFileWatcher(projectId) {
+    const watcherKey = projectId || 'default';
+    if (fileWatchers.has(watcherKey)) {
+        clearInterval(fileWatchers.get(watcherKey).watchInterval);
+        fileWatchers.delete(watcherKey);
+        console.log(`Stopped file watcher for project: ${projectId || 'default'}`);
+    }
+}
+
+// API endpoint to start/stop file watcher for a project
+app.post('/api/files/watch', (req, res) => {
+    const { project_id, action } = req.body;
+    if (action === 'start') {
+        startFileWatcher(project_id || null);
+        res.json({ message: `File watcher started for project: ${project_id || 'default'}` });
+    } else if (action === 'stop') {
+        stopFileWatcher(project_id || null);
+        res.json({ message: `File watcher stopped for project: ${project_id || 'default'}` });
+    } else {
+        res.status(400).json({ error: 'Invalid action. Use "start" or "stop"' });
+    }
+});
 
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    // Start file watcher when server starts
-    startFileWatcher();
+    // Note: File watchers are started on-demand via API or frontend
 });
 

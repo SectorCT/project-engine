@@ -3,14 +3,35 @@ import os
 import time
 import tarfile
 import io
+import hashlib
 from typing import Dict, Any
 from config.settings import settings
 
+def get_port_for_project(project_id: str, port_base: int = 48000, port_range: int = 1000) -> int:
+    """
+    Deterministically assign a port in the range [port_base, port_base + port_range) 
+    based on project_id hash.
+    
+    Args:
+        project_id: Unique project identifier
+        port_base: Starting port number (default 48000)
+        port_range: Number of ports available (default 1000, so range is 48000-48999)
+    
+    Returns:
+        Port number in the specified range
+    """
+    # Hash the project_id to get a consistent port
+    hash_obj = hashlib.md5(project_id.encode('utf-8'))
+    hash_int = int(hash_obj.hexdigest(), 16)
+    port = port_base + (hash_int % port_range)
+    return port
+
 class DockerEnv:
-    def __init__(self, workspace_path: str = None):
+    def __init__(self, workspace_path: str = None, project_id: str = None):
         """
         Initialize DockerEnv.
         :param workspace_path: Path to LOCAL workspace (currently unused - container starts empty).
+        :param project_id: Unique project ID for persistent container naming. If None, uses default container name.
         """
         # Allow configuring Docker client (e.g. for Docker Desktop)
         # docker.from_env() automatically reads DOCKER_HOST environment variable if set.
@@ -22,7 +43,12 @@ class DockerEnv:
              
         self.workspace_path = os.path.abspath(workspace_path) if workspace_path else None
         self.image_name = "project_engine_builder:latest"
-        self.container_name = "project_engine_builder_container"
+        # Use project-specific container name if project_id is provided
+        if project_id:
+            self.container_name = f"project_engine_{project_id}_container"
+        else:
+            self.container_name = "project_engine_builder_container"
+        self.project_id = project_id
         self.container = None
 
     def build_image(self):
@@ -43,47 +69,107 @@ class DockerEnv:
             raise
 
     def start_container(self, has_backend: bool = False):
-        """Start the container (ISOLATED and EMPTY)."""
+        """
+        Start or resume the container for this project.
+        If container exists and is stopped, resume it.
+        If container exists and is running, reuse it.
+        If container doesn't exist, create a new one.
+        """
+        # Calculate expected ports based on project_id
+        if self.project_id:
+            frontend_port = get_port_for_project(self.project_id, port_base=48000, port_range=1000)
+            if has_backend:
+                mongodb_port = frontend_port + 1
+                if mongodb_port >= 49000:
+                    mongodb_port = frontend_port - 1
+            else:
+                mongodb_port = None
+        else:
+            frontend_port = 3000
+            mongodb_port = 6666 if has_backend else None
+        
         try:
-            # Check if container exists and remove it
+            # Check if container already exists
             try:
-                old_container = self.client.containers.get(self.container_name)
-                old_container.remove(force=True)
+                existing_container = self.client.containers.get(self.container_name)
+                container_info = existing_container.attrs
+                container_status = container_info['State']['Status']
+                
+                if container_status == 'running':
+                    print(f"Container {self.container_name} is already running. Reusing existing container.")
+                    self.container = existing_container
+                    # Print actual ports being used
+                    try:
+                        port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
+                        if '3000/tcp' in port_bindings:
+                            actual_frontend = int(port_bindings['3000/tcp'][0]['HostPort'])
+                            print(f"  Frontend: http://localhost:{actual_frontend}")
+                        if '27017/tcp' in port_bindings and has_backend:
+                            actual_mongodb = int(port_bindings['27017/tcp'][0]['HostPort'])
+                            print(f"  MongoDB: mongodb://localhost:{actual_mongodb}")
+                    except Exception:
+                        pass
+                    return
+                elif container_status in ['exited', 'stopped']:
+                    print(f"Container {self.container_name} exists but is stopped. Resuming container...")
+                    existing_container.start()
+                    self.container = existing_container
+                    # Wait a moment for the container to stabilize
+                    time.sleep(2)
+                    print(f"✅ Container {self.container_name} resumed successfully.")
+                    # Print actual ports being used
+                    try:
+                        container_info = existing_container.attrs
+                        port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
+                        if '3000/tcp' in port_bindings:
+                            actual_frontend = int(port_bindings['3000/tcp'][0]['HostPort'])
+                            print(f"  Frontend: http://localhost:{actual_frontend}")
+                        if '27017/tcp' in port_bindings and has_backend:
+                            actual_mongodb = int(port_bindings['27017/tcp'][0]['HostPort'])
+                            print(f"  MongoDB: mongodb://localhost:{actual_mongodb}")
+                    except Exception:
+                        pass
+                    return
+                else:
+                    # Container is in an unexpected state, remove and recreate
+                    print(f"Container {self.container_name} is in state '{container_status}'. Removing and recreating...")
+                    existing_container.remove(force=True)
             except docker.errors.NotFound:
+                # Container doesn't exist, will create new one
                 pass
 
-            print(f"Starting container {self.container_name} (ISOLATED and EMPTY)...")
+            print(f"Creating new container {self.container_name}...")
             
             environment = {}
             if settings.CURSOR_API_KEY:
                 environment["CURSOR_API_KEY"] = settings.CURSOR_API_KEY
             
-            # Expose port 3000 for frontend (Vite dev server)
-            # Map container port 3000 to host port 3000
-            ports = {'3000/tcp': 3000}
+            # Assign ports dynamically based on project_id
+            ports = {'3000/tcp': frontend_port}
+            if has_backend and mongodb_port:
+                ports['27017/tcp'] = mongodb_port
             
-            # Expose MongoDB port 6666 on host when backend is present
-            if has_backend:
-                ports['27017/tcp'] = 6666
+            print(f"  Frontend port: {frontend_port} (container:3000 -> host:{frontend_port})")
+            if has_backend and mongodb_port:
+                print(f"  MongoDB port: {mongodb_port} (container:27017 -> host:{mongodb_port})")
             
-            # NO VOLUMES. We want isolation.
-            # Container starts completely empty - no files copied.
+            # Create persistent container (not ephemeral)
+            # Container will persist across restarts
             self.container = self.client.containers.run(
                 self.image_name,
                 name=self.container_name,
-                # volumes={}, # Removed binding
                 ports=ports,
                 environment=environment,
                 detach=True,
                 tty=True,
+                # Keep container running even after exit
+                remove=False,  # Don't auto-remove on stop
                 log_config=docker.types.LogConfig(type=docker.types.LogConfig.types.JSON)
             )
-            print("Container started (empty filesystem).")
+            print(f"✅ Container {self.container_name} created and started.")
             
             # Wait a moment for the container to stabilize
             time.sleep(2)
-            
-            # We do NOT copy any files - container starts fresh/empty
             
         except Exception as e:
             print(f"Error starting container: {e}")
@@ -258,14 +344,20 @@ class DockerEnv:
                 return None
         return self.container
 
-    def stop_container(self):
-        """Stop and remove the container."""
+    def stop_container(self, remove: bool = False):
+        """
+        Stop the container.
+        :param remove: If True, also remove the container. Default False to keep it persistent.
+        """
         if self.container:
-            print("Stopping container...")
+            print(f"Stopping container {self.container_name}...")
             try:
                 self.container.stop()
-                self.container.remove()
-                print("Container stopped and removed.")
+                if remove:
+                    self.container.remove()
+                    print(f"Container {self.container_name} stopped and removed.")
+                else:
+                    print(f"Container {self.container_name} stopped (still exists, can be resumed).")
             except Exception as e:
                 print(f"Error stopping container: {e}")
             finally:

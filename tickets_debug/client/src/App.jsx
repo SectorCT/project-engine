@@ -7,6 +7,9 @@ function App() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('tickets'); // 'tickets' or 'files'
   
+  // Project ID state
+  const [projectId, setProjectId] = useState('');
+  
   // File browser state
   const [fileStructure, setFileStructure] = useState(null);
   const [fileContent, setFileContent] = useState(null);
@@ -48,7 +51,11 @@ function App() {
     setFileLoading(true);
     setFileError(null);
     try {
-      const res = await axios.get(`/api/files/structure?t=${new Date().getTime()}`);
+      const params = new URLSearchParams({ t: new Date().getTime().toString() });
+      if (projectId) {
+        params.append('project_id', projectId);
+      }
+      const res = await axios.get(`/api/files/structure?${params.toString()}`);
       // Add null checks to prevent errors
       if (res && res.data && res.data.structure) {
         setFileStructure(res.data.structure);
@@ -70,7 +77,14 @@ function App() {
     setFileError(null);
     setSelectedFile(filePath);
     try {
-      const res = await axios.get(`/api/files/content?path=${encodeURIComponent(filePath)}&t=${new Date().getTime()}`);
+      const params = new URLSearchParams({
+        path: filePath,
+        t: new Date().getTime().toString()
+      });
+      if (projectId) {
+        params.append('project_id', projectId);
+      }
+      const res = await axios.get(`/api/files/content?${params.toString()}`);
       // Add null checks to prevent errors
       if (res && res.data) {
         setFileContent(res.data);
@@ -319,6 +333,8 @@ function App() {
             selectedFile={selectedFile}
             fileLoading={fileLoading}
             fileError={fileError}
+            projectId={projectId}
+            onProjectIdChange={setProjectId}
             onFileSelect={fetchFileContent}
             onRefresh={fetchFileStructure}
           />
@@ -450,7 +466,7 @@ const TicketCard = ({ ticket, getTicketTitle, getStatusColor, getTicketById, isC
   );
 };
 
-const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fileError, onFileSelect, onRefresh }) => {
+const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fileError, projectId, onProjectIdChange, onFileSelect, onRefresh }) => {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['/app']));
 
   const toggleExpand = (path) => {
@@ -511,15 +527,30 @@ const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fi
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* File Tree */}
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold text-gray-800">File Structure</h2>
-          <button
-            onClick={onRefresh}
-            disabled={fileLoading}
-            className="text-sm text-blue-600 hover:text-blue-700 disabled:text-gray-400"
-          >
-            {fileLoading ? 'Loading...' : 'Refresh'}
-          </button>
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-lg font-bold text-gray-800">File Structure</h2>
+            <button
+              onClick={onRefresh}
+              disabled={fileLoading}
+              className="text-sm text-blue-600 hover:text-blue-700 disabled:text-gray-400"
+            >
+              {fileLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Project ID:</label>
+            <input
+              type="text"
+              value={projectId || ''}
+              onChange={(e) => onProjectIdChange(e.target.value)}
+              placeholder="Enter project ID (optional)"
+              className="border border-gray-300 rounded px-2 py-1 text-sm flex-1 max-w-xs"
+            />
+            <span className="text-xs text-gray-500">
+              {projectId ? `Container: project_engine_${projectId}_container` : 'Using default container'}
+            </span>
+          </div>
         </div>
         
         {fileError ? (
