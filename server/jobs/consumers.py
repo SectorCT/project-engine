@@ -45,7 +45,7 @@ class JobConsumer(AsyncJsonWebsocketConsumer):
         
         if hasattr(self, 'group_name'):
             try:
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+                await self.channel_layer.group_discard(self.group_name, self.channel_name)
             except Exception as e:
                 logger.error(f"Error discarding group {self.group_name}: {e}")
         else:

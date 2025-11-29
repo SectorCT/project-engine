@@ -36,6 +36,11 @@ GET	/api/apps/by-job/<job_id>/	Fetch the app belonging to a specific job (204 if
 Method	Path	Description
 GET	/api/tickets/?job_id=<job_id>	List all tickets (epics + stories) for the job with parent/dependency metadata.
 GET	/api/tickets/<ticket_id>/	Retrieve a single ticket (owner-scoped).
+3.5 Build artifacts (Docker workspace)
+Method	Path	Description
+GET	/api/jobs/<job_id>/files/structure/?path=/app	Returns a tree of directories/files within the job’s Docker workspace (default `/app`). Use `limit` query param (1–1000, default 200) to cap how many entries the backend inspects per request.
+GET	/api/jobs/<job_id>/files/content/?path=/app/src/App.tsx	Reads the raw text of a file that lives inside the build container. Paths are sandboxed to `/app`.
+Container naming: every job spins up (or reuses) a dedicated Docker container called `project_engine_<job_id>_container`. The file APIs automatically target that container, so you can safely run/inspect multiple jobs in parallel without clobbering others. The fallback container `project_engine_builder_container` is only used for CLI/dev flows without a job id.
 
 4. WebSocket Protocol
 URL:

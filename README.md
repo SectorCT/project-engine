@@ -32,6 +32,8 @@ Jobs emit updates to the WebSocket group `job_<job_id>` and persist the same inf
 - `GET /api/job-messages/?job_id=<job_id>` – fetch chat + description history for a specific job (oldest → newest).
 - `GET /api/tickets/?job_id=<job_id>` – list the generated epics/stories for a job (owner-only).
 - `GET /api/tickets/<ticket_id>/` – retrieve a single ticket with its metadata/dependencies.
+- `GET /api/jobs/<job_id>/files/structure/?path=/app` – lightweight explorer for the job’s Docker workspace (uses `find` in the build container).
+- `GET /api/jobs/<job_id>/files/content/?path=/app/src/App.tsx` – read a file that lives inside the build container.
 - WebSocket: `ws://<host>/ws/jobs/<job_id>/` (include `Authorization: Bearer <JWT>`; in dev you may also append `?token=<JWT>` when `ALLOW_WS_TOKEN_QUERY` is enabled for quick testing).
 
 All endpoints require authentication (JWT) except those under `/api/auth/`.
@@ -46,6 +48,7 @@ All endpoints require authentication (JWT) except those under `/api/auth/`.
 6. When the discussion finishes, the generated spec (requirements, history, PRD summary) is attached to `App.spec` and broadcast with a `prdReady` event. The job status moves to `prd_ready`.
 7. Immediately after the PRD is stored, the Project Manager agent breaks it into Epics/Stories/Tickets. Progress is streamed via `stageUpdate` messages, the job status transitions to `ticketing`, and settles on `tickets_ready` when all tickets are persisted (or `failed` if the ticket pass errors out). The `/api/tickets/` endpoint and `ticketUpdate` WebSocket events expose the backlog in real time.
 8. Once the backlog exists, a second Celery task spins up the agentLoop build environment, iterates over every ticket, and reports granular progress (`building` → `build_done`) through `jobStatus`, `ticketUpdate`, and `stageUpdate` events. Ticket status transitions (`todo` → `in_progress` → `done/failed`) are stored in the database and streamed to connected clients.
+   - Each job now uses its own Docker container named `project_engine_<job_id>_container`, so artifacts remain isolated per build. Inspect or exec into the container by referencing that name (the default `project_engine_builder_container` is only used when no job id is supplied).
 
 **Job Status Cheat Sheet** – `collecting` → `queued` → `planning` → `prd_ready` → `ticketing` → `tickets_ready` → `building` → `build_done` (with `failed` available at any point on unrecoverable errors). Clients should react to these status updates from the WebSocket `jobStatus` events.
 
@@ -93,7 +96,7 @@ The compose file automatically runs migrations on start. Copy `.envtemplate` to 
    ```json
    {"kind": "chat", "content": "Here are more details about the target users."}
    ```
-4. Observe `stageUpdate`, `jobStatus`, `agentDialogue`, `prdReady`, and `ticketUpdate` payloads as the job progresses from requirements gathering through build-out.
+4. Observe `stageUpdate`, `jobStatus`, `agentDialogue`, `prdReady`, and `ticketUpdate` payloads as the job progresses.
 
 ## Next Steps
 

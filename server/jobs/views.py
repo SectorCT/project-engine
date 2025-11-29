@@ -1,13 +1,12 @@
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import App, Job, Ticket
-from django.conf import settings
-
-from .models import App, Job, JobMessage
+from .artifact_service import FileContentError, FileStructureError, get_file_structure, read_file
+from .models import App, Job, JobMessage, Ticket
 from .serializers import (
     AppSerializer,
     JobCreateSerializer,
@@ -86,6 +85,42 @@ class JobViewSet(
         deleted, _ = Job.objects.filter(owner=request.user).delete()
         return Response({'deleted': deleted}, status=status.HTTP_200_OK)
 
+    def _artifact_error_response(self, exc: Exception):
+        kind = getattr(exc, 'kind', 'error')
+        if kind == 'not_found':
+            status_code = status.HTTP_404_NOT_FOUND
+        elif kind == 'not_running':
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        else:
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({'detail': str(exc)}, status=status_code)
+
+    @action(detail=True, methods=('get',), url_path='files/structure')
+    def file_structure(self, request, id=None):
+        job = self.get_object()
+        path = request.query_params.get('path', '/app')
+        try:
+            limit = int(request.query_params.get('limit', '200'))
+        except ValueError:
+            return Response({'detail': 'Query parameter "limit" must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+        limit = max(1, min(1000, limit))
+        try:
+            structure = get_file_structure(str(job.id), path=path, limit=limit)
+        except FileStructureError as exc:
+            return self._artifact_error_response(exc)
+        return Response({'structure': structure})
+
+    @action(detail=True, methods=('get',), url_path='files/content')
+    def file_content(self, request, id=None):
+        job = self.get_object()
+        path = request.query_params.get('path')
+        if not path:
+            return Response({'detail': 'Query parameter "path" is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = read_file(str(job.id), path)
+        except FileContentError as exc:
+            return self._artifact_error_response(exc)
+        return Response(payload)
 
 class AppViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = (IsAuthenticated,)
