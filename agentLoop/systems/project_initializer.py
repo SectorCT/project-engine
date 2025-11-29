@@ -63,6 +63,7 @@ class ProjectInitializer:
                 "server/index.ts",
                 "server/cors.ts",  # Pre-configured CORS
                 "server/tsconfig.json",
+                "server/mongodb.config.ts",  # MongoDB connection URI
             ])
         
         # Common folders
@@ -125,6 +126,8 @@ class ProjectInitializer:
         
         if has_backend:
             _init_backend(docker_env, structure)
+            # Setup MongoDB after backend initialization
+            _setup_mongodb(docker_env, structure)
         
         print("Project structure initialized successfully.")
     
@@ -146,6 +149,13 @@ class ProjectInitializer:
         lines.append("Known Files:")
         for file in structure.get("known_files", []):
             lines.append(f"  - {file}")
+        
+        # Add MongoDB URI location if backend exists
+        if structure.get("has_backend", False):
+            lines.append("")
+            lines.append("MongoDB Configuration:")
+            lines.append("  - MongoDB URI is available in server/mongodb.config.ts")
+            lines.append("  - MongoDB runs on port 27017 (default port)")
         
         return "\n".join(lines)
 
@@ -415,4 +425,61 @@ app.listen(PORT, () => {
 });
 '''
     _write_file_to_docker(docker_env, "/app/server/index.ts", server_index)
+
+
+def _setup_mongodb(docker_env: DockerEnv, structure: Dict):
+    """Setup MongoDB and create connection URI configuration file."""
+    print("Setting up MongoDB...")
+    
+    # Ensure MongoDB directories exist and have correct permissions
+    docker_env.exec_run("mkdir -p /data/db /var/log/mongodb", workdir="/app")
+    docker_env.exec_run("chown -R mongodb:mongodb /data/db /var/log/mongodb || true", workdir="/app")
+    
+    # Start MongoDB service in background
+    print("Starting MongoDB service...")
+    # Use nohup to run MongoDB in background since container doesn't use systemd
+    exit_code, output = docker_env.exec_run(
+        "bash -c 'nohup mongod --bind_ip 0.0.0.0 --logpath /var/log/mongodb/mongod.log > /var/log/mongodb/mongod.log 2>&1 &'",
+        workdir="/app"
+    )
+    
+    if exit_code != 0:
+        print(f"Warning: MongoDB start command returned exit code {exit_code}")
+        print(f"Output: {output[:500]}")
+    
+    # Wait a moment for MongoDB to start
+    import time
+    time.sleep(5)
+    
+    # Check if MongoDB is accessible without authentication
+    print("Checking MongoDB accessibility...")
+    exit_code, output = docker_env.exec_run(
+        "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+        workdir="/app"
+    )
+    
+    # Default to no authentication (as per user request)
+    mongodb_uri = "mongodb://localhost:27017/project_db"
+    
+    if exit_code == 0:
+        print("✅ MongoDB is accessible without authentication.")
+    else:
+        print(f"⚠️  MongoDB ping check returned exit code {exit_code}")
+        print(f"Output: {output[:500]}")
+        print("MongoDB may still be starting up. URI will be created anyway.")
+    
+    # Create MongoDB configuration file
+    mongodb_config = f'''// MongoDB Connection Configuration
+// MongoDB runs on port 27017 (default port)
+export const MONGODB_URI = "{mongodb_uri}";
+
+// Example usage:
+// import {{ MongoClient }} from 'mongodb';
+// const client = new MongoClient(MONGODB_URI);
+// await client.connect();
+'''
+    
+    _write_file_to_docker(docker_env, "/app/server/mongodb.config.ts", mongodb_config)
+    print(f"✅ MongoDB URI configuration created at server/mongodb.config.ts")
+    print(f"   MongoDB URI: {mongodb_uri}")
 

@@ -11,9 +11,24 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     wget \
     unzip \
+    gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install MongoDB Community Edition (Ubuntu 22.04 compatible)
+RUN curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor \
+    && echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list \
+    && apt-get update \
+    && apt-get install -y mongodb-org \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create MongoDB data and log directories and set permissions
+RUN mkdir -p /data/db /var/log/mongodb && \
+    chown -R mongodb:mongodb /data/db /var/log/mongodb
+
+# Configure MongoDB to bind to 0.0.0.0 (accessible from host)
+RUN echo "net:\n  bindIp: 0.0.0.0" >> /etc/mongod.conf
 
 # Install Cursor CLI
 RUN curl https://cursor.com/install -fsS | bash

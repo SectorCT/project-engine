@@ -2,21 +2,26 @@ import sys
 import os
 import time
 from typing import List, Dict
-from agents.pm_agent import PMAgent
+from agents.master_pm_agent import MasterPMAgent
+from agents.frontend_pm_agent import FrontendPMAgent
+from agents.backend_pm_agent import BackendPMAgent
 from agents.coder_agent import CoderAgent
 from systems.ticket_system import TicketSystem
 from systems.docker_env import DockerEnv
 from systems.project_initializer import ProjectInitializer
 from config.settings import settings
 
-def build_phase():
+def build_phase(prd_path: str = None):
     """
     The Build Phase:
-    1. Get project structure info from tickets or determine has_backend/has_frontend
+    1. Get project structure info from PRD (if provided) or determine from tickets
     2. Spin up Docker Environment
     3. Initialize project structure in Docker
     4. Iterate through tickets
     5. Coder Agent resolves them using Cursor CLI
+    
+    Args:
+        prd_path: Optional path to PRD file to determine project structure (backend/frontend)
     """
     print("\n--- Starting Build Phase ---")
     
@@ -38,16 +43,32 @@ def build_phase():
 
     print(f"Found {len(todo_tickets)} tickets to resolve.")
 
-    # 2. Determine has_backend and has_frontend from tickets or use defaults
-    # For now, we'll check if there are backend/frontend related tickets
-    # In the future, this should come from the discussion/PRD
-    has_backend = any('backend' in str(t.get('title', '')).lower() or 'api' in str(t.get('title', '')).lower() or 'server' in str(t.get('title', '')).lower() for t in all_tickets)
-    has_frontend = any('frontend' in str(t.get('title', '')).lower() or 'ui' in str(t.get('title', '')).lower() or 'component' in str(t.get('title', '')).lower() for t in all_tickets)
-    
-    # Default to both if we can't determine
-    if not has_backend and not has_frontend:
-        has_backend = True
-        has_frontend = True
+    # 2. Determine has_backend and has_frontend
+    # If PRD is provided, read it to determine structure
+    # Otherwise, infer from tickets
+    if prd_path and os.path.exists(prd_path):
+        print(f"Reading PRD from: {prd_path} to determine project structure...")
+        with open(prd_path, 'r') as f:
+            prd_content = f.read()
+        
+        # Simple heuristic: check PRD content for backend/frontend keywords
+        prd_lower = prd_content.lower()
+        has_backend = any(keyword in prd_lower for keyword in ['backend', 'api', 'server', 'database', 'mongodb', 'express'])
+        has_frontend = any(keyword in prd_lower for keyword in ['frontend', 'ui', 'component', 'react', 'vite', 'interface'])
+        
+        # Default to both if we can't determine from PRD
+        if not has_backend and not has_frontend:
+            has_backend = True
+            has_frontend = True
+    else:
+        # Fallback: determine from tickets
+        has_backend = any('backend' in str(t.get('title', '')).lower() or 'api' in str(t.get('title', '')).lower() or 'server' in str(t.get('title', '')).lower() for t in all_tickets)
+        has_frontend = any('frontend' in str(t.get('title', '')).lower() or 'ui' in str(t.get('title', '')).lower() or 'component' in str(t.get('title', '')).lower() for t in all_tickets)
+        
+        # Default to both if we can't determine
+        if not has_backend and not has_frontend:
+            has_backend = True
+            has_frontend = True
     
     print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
     
@@ -60,10 +81,26 @@ def build_phase():
     
     try:
         docker_env.build_image()
-        docker_env.start_container()
+        docker_env.start_container(has_backend=has_backend)
         
         # 5. Initialize project structure in Docker
         ProjectInitializer.init_project(project_structure, docker_env)
+        
+        # 5.5. Start MongoDB service if backend exists
+        if has_backend:
+            print("\nStarting MongoDB service...")
+            # MongoDB will be started by _setup_mongodb() in init_project()
+            # But we verify it's running here
+            time.sleep(2)  # Give MongoDB time to start
+            exit_code, output = docker_env.exec_run(
+                "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+                workdir="/app"
+            )
+            if exit_code == 0:
+                print("✅ MongoDB is running and accessible.")
+            else:
+                print(f"⚠️  MongoDB verification failed (exit code: {exit_code})")
+                print(f"Output: {output[:500]}")
         
         # 5.5. Install npm dependencies
         print("\nInstalling npm dependencies...")
@@ -98,42 +135,39 @@ def build_phase():
                 all_tickets=all_tickets
             )
             
-            # Status updates are commented out for now
-            # if success:
-            #     # Mark as done
-            #     if ticket_system.use_mongo:
-            #         from bson.objectid import ObjectId
-            #         try:
-            #             ticket_system.collection.update_one(
-            #                 {"_id": ObjectId(ticket['_id'])},
-            #                 {"$set": {"status": "done"}}
-            #             )
-            #         except:
-            #              ticket_system.collection.update_one(
-            #                 {"id": ticket['id']},
-            #                 {"$set": {"status": "done"}}
-            #             )
-            #     else:
-            #         # Local JSON update
-            #         import json
-            #         with open(ticket_system.local_file, 'r') as f:
-            #             data = json.load(f)
-            #         for t in data:
-            #             if t.get('id') == ticket.get('id') or t.get('_id') == ticket.get('_id'):
-            #                 t['status'] = 'done'
-            #                 break
-            #         with open(ticket_system.local_file, 'w') as f:
-            #             json.dump(data, f, indent=2)
-            #                 
-            #     print(f"Ticket {ticket.get('title')} marked as DONE.")
-            # else:
-            #     print(f"Ticket {ticket.get('title')} FAILED. Skipping.")
+            # Update ticket status based on success
+            # Get the ticket ID (MongoDB uses '_id', local JSON uses 'id')
+            ticket_id = ticket.get('_id') or ticket.get('id')
+            
+            if success:
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), "done")
+                        print(f"✅ Ticket '{ticket.get('title')}' marked as DONE.")
+                    except Exception as e:
+                        print(f"⚠️  Failed to update ticket status: {e}")
+                        print(f"   Ticket ID was: {ticket_id}")
+                else:
+                    print(f"⚠️  Could not find ticket ID for '{ticket.get('title')}'")
+            else:
+                # Mark as failed
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), "failed")
+                        print(f"❌ Ticket '{ticket.get('title')}' marked as FAILED.")
+                    except Exception as e:
+                        print(f"⚠️  Failed to update ticket status: {e}")
+                        print(f"   Ticket ID was: {ticket_id}")
+                else:
+                    print(f"⚠️  Could not find ticket ID for '{ticket.get('title')}'")
                 
     finally:
         # Cleanup
         # We explicitly do NOT stop the container as requested
         print("\nKeeping container running as requested.")
         print("Container port 3000 is exposed - frontend accessible at http://localhost:3000")
+        if has_backend:
+            print("Container port 27017 is exposed on host port 6666 - MongoDB accessible at mongodb://localhost:6666")
         print("You can inspect the container with: docker exec project_engine_builder_container ls -la /app")
         # docker_env.stop_container()
 
@@ -174,10 +208,24 @@ def init_structure_only():
         docker_env.build_image()
         
         print("Starting Docker container...")
-        docker_env.start_container()
+        docker_env.start_container(has_backend=has_backend)
         
         print("Initializing project structure in Docker...")
         ProjectInitializer.init_project(project_structure, docker_env)
+        
+        # Verify MongoDB if backend exists
+        if has_backend:
+            print("\nVerifying MongoDB service...")
+            time.sleep(2)  # Give MongoDB time to start
+            exit_code, output = docker_env.exec_run(
+                "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+                workdir="/app"
+            )
+            if exit_code == 0:
+                print("✅ MongoDB is running and accessible.")
+            else:
+                print(f"⚠️  MongoDB verification failed (exit code: {exit_code})")
+                print(f"Output: {output[:500]}")
         
         print("\nInstalling npm dependencies...")
         exit_code, output = docker_env.exec_run("npm install", workdir="/app")
@@ -190,6 +238,10 @@ def init_structure_only():
         print("\n✅ Project structure initialized successfully!")
         print("Container is running with port 3000 exposed.")
         print("Frontend will be accessible at: http://localhost:3000")
+        if has_backend:
+            print("MongoDB is running with port 27017 exposed on host port 6666.")
+            print("MongoDB URI: mongodb://localhost:6666/project_db")
+            print("MongoDB config file: server/mongodb.config.ts")
         print("\nYou can inspect the container with:")
         print("  docker exec project_engine_builder_container ls -la /app")
         print("  docker exec project_engine_builder_container find /app -type f")
@@ -197,6 +249,9 @@ def init_structure_only():
         print("  docker exec project_engine_builder_container npm <command>")
         print("  Example: docker exec project_engine_builder_container npm run dev")
         print("  (Then access http://localhost:3000 in your browser)")
+        if has_backend:
+            print("\nTo connect to MongoDB from host:")
+            print("  mongosh mongodb://localhost:6666/project_db")
         print("\nTo stop the container:")
         print("  docker stop project_engine_builder_container")
         print("  docker rm project_engine_builder_container")
@@ -208,7 +263,9 @@ def init_structure_only():
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--build":
-        build_phase()
+        # Check if PRD path is provided as second argument
+        prd_path = sys.argv[2] if len(sys.argv) > 2 else None
+        build_phase(prd_path=prd_path)
         return
     
     if len(sys.argv) > 1 and sys.argv[1] == "--init":
@@ -216,12 +273,29 @@ def main():
         return
 
     if len(sys.argv) < 2:
-        print("Usage: python build.py <path_to_prd.md>")
-        print("       python build.py --build      # Full build (tickets + agent)")
+        print("Usage: python build.py <path_to_prd.md> [--no-build]")
+        print("       python build.py --build [<path_to_prd.md>]  # Build from existing tickets (optionally use PRD for structure)")
         print("       python build.py --init       # Initialize structure only (for testing)")
+        print("")
+        print("By default, running with a PRD will generate tickets AND run the build phase.")
+        print("Use --no-build to skip the build phase after ticket generation.")
+        print("Use --build <prd_path> to build from existing tickets but use PRD to determine project structure.")
         return
 
-    prd_path = sys.argv[1]
+    # Check for --no-build flag
+    skip_build = "--no-build" in sys.argv
+    
+    # Get PRD path (first non-flag argument)
+    prd_path = None
+    for arg in sys.argv[1:]:
+        if arg not in ["--no-build"]:
+            prd_path = arg
+            break
+    
+    if not prd_path:
+        print("Error: PRD file path is required.")
+        return
+        
     if not os.path.exists(prd_path):
         print(f"Error: File '{prd_path}' not found.")
         return
@@ -247,158 +321,177 @@ def main():
     has_backend = True  # TODO: Extract from discussion/PRD
     has_frontend = True  # TODO: Extract from discussion/PRD
     
-    # Get project structure before PM agent
-    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    # Get project structure before PM agents
+    project_structure_dict = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    project_structure = ProjectInitializer.get_structure_summary(project_structure_dict)
     print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
     
-    pm_agent = PMAgent()
-
-    print("\nPM Agent is analyzing the PRD and generating tickets...")
-    tickets_data = pm_agent.generate_tickets(prd_content, project_structure=project_structure)
-
-    if not tickets_data:
-        print("No tickets were generated. Please check the logs or try again.")
+    # Step 1: Master PM creates functional epics
+    master_pm = MasterPMAgent()
+    master_pm.project_structure = project_structure
+    
+    print("\n=== Step 1: Master PM creating functional epics ===")
+    functional_epics = master_pm.generate_functional_epics(prd_content)
+    
+    if not functional_epics:
+        print("No functional epics were generated. Please check the logs or try again.")
         return
-
-    print(f"\nGenerated {len(tickets_data)} tickets. Saving to system...")
     
-    # Fix parent_id: Stories should point to their Epic, not to other stories
-    epics = [t for t in tickets_data if t.get("type") == "epic"]
-    stories = [t for t in tickets_data if t.get("type") == "story"]
+    print(f"Generated {len(functional_epics)} functional epics.")
     
-    # Build a map of epic temp IDs to epic objects
-    epic_map = {str(epic.get("id")): epic for epic in epics}
-    story_map = {str(s.get("id")): s for s in stories}
+    # Step 2: Create functional epics first (to get their DB IDs)
+    print("\n=== Creating functional epics ===")
+    functional_epic_db_ids = {}  # Map functional epic temp_id to DB ID
     
-    # Fix stories: if parent_id points to a story or is wrong, find the correct epic
-    # Stories are generated in batches after their epic, so we'll use order-based matching
-    current_epic = None
-    for ticket in tickets_data:
-        if ticket.get("type") == "epic":
-            current_epic = ticket
-        elif ticket.get("type") == "story":
-            current_parent = str(ticket.get("parent_id", ""))
-            
-            # Check if parent_id is valid (points to an epic)
-            if current_parent in epic_map:
-                # Good, it's already correct
-                continue
-            
-            # Check if parent_id points to a story (wrong) or is empty/wrong
-            parent_is_story = current_parent in story_map
-            parent_is_self = current_parent == str(ticket.get("id"))
-            
-            if parent_is_story or parent_is_self or not current_parent or current_parent not in epic_map:
-                # Fix: assign to the current epic (last epic we saw)
-                if current_epic:
-                    correct_epic_id = str(current_epic.get("id"))
-                    ticket["parent_id"] = correct_epic_id
-                    print(f"  Fixed parent_id for '{ticket.get('title')}': {current_parent} -> {correct_epic_id}")
-                else:
-                    # No epic found, assign to first epic as fallback
-                    if epics:
-                        correct_epic_id = str(epics[0].get("id"))
-                        ticket["parent_id"] = correct_epic_id
-                        print(f"  Fixed parent_id for '{ticket.get('title')}': {current_parent} -> {correct_epic_id} (fallback)")
-
-    # Map temporary PM-generated IDs (e.g. "1", "2") to real DB IDs (e.g. "692a...")
-    # so we can resolve dependencies correctly.
-    temp_id_to_db_id = {}
-
-    # First pass: Create tickets to get DB IDs
-    final_tickets = []
-    
-    for idx, t in enumerate(tickets_data):
-        # If PM agent didn't provide an id, auto-assign one based on position
-        if t.get("id") is None:
-            t["id"] = str(idx + 1)
-        
-        temp_id = str(t.get("id")) if t.get("id") is not None else None # Ensure string
-        
-        # Create the ticket (initially with empty dependencies to avoid broken links)
-        real_id = ticket_system.create_ticket(
-            type=t.get("type", "story"),
-            title=t.get("title", "Untitled"),
-            description=t.get("description", ""),
-            assigned_to=t.get("assigned_to", "Unassigned"),
-            dependencies=[], # We will fill this in pass 2
-            parent_id=None   # We will fill this in pass 2
+    for epic in functional_epics:
+        func_epic_temp_id = str(epic.get("id")) if epic.get("id") else None
+        func_epic_db_id = ticket_system.create_ticket(
+            type="epic",
+            title=epic.get("title", "Untitled"),
+            description=epic.get("description", ""),
+            assigned_to=epic.get("assigned_to", "Master PM"),
+            dependencies=[],
+            parent_id=None
         )
-        
-        if temp_id:
-            temp_id_to_db_id[temp_id] = real_id
-        
-        # Store for pass 2
-        t['real_db_id'] = real_id
-        final_tickets.append(t)
-        print(f"  [+] Created {t.get('type').upper()}: {t.get('title')} (ID: {real_id})")
-
-    # Second pass: Update dependencies and parent
-    print("Resolving dependencies and parents...")
+        if func_epic_temp_id:
+            functional_epic_db_ids[func_epic_temp_id] = func_epic_db_id
+        print(f"  [+] Created FUNCTIONAL EPIC: {epic.get('title')} (ID: {func_epic_db_id})")
     
-    # Check for circular dependencies before applying
-    def has_circular_dependency(ticket_id: str, deps: List[str], all_tickets: List[Dict], visited: set = None) -> bool:
-        """Check if adding these dependencies would create a cycle"""
-        if visited is None:
-            visited = set()
-        
-        ticket_id_str = str(ticket_id)
-        if ticket_id_str in visited:
-            return True  # Circular!
-        
-        visited.add(ticket_id_str)
-        
-        for dep_id in deps:
-            dep_ticket = next((t for t in all_tickets if str(t.get("id")) == str(dep_id)), None)
-            if dep_ticket:
-                dep_deps = dep_ticket.get("dependencies", [])
-                if has_circular_dependency(dep_id, dep_deps, all_tickets, visited.copy()):
-                    return True
-        
-        return False
+    # Step 3: Generate frontend and backend epics/stories for each functional epic
+    # Create them immediately as we generate them
+    frontend_pm = FrontendPMAgent()
+    frontend_pm.project_structure = project_structure
     
-    for t in final_tickets:
-        # 1. Update Dependencies
-        # Filter out dependencies that point to the Epic (use parent_id for that relationship)
-        ticket_type = t.get("type", "story")
-        raw_deps = t.get("dependencies", [])
-        real_deps = []
+    backend_pm = BackendPMAgent()
+    backend_pm.project_structure = project_structure
+    
+    backend_epic_db_ids = {}  # Track backend epic DB IDs for frontend dependencies
+    
+    for functional_epic in functional_epics:
+        func_epic_title = functional_epic.get("title", "")
+        func_epic_temp_id = str(functional_epic.get("id")) if functional_epic.get("id") else None
+        func_epic_db_id = functional_epic_db_ids.get(func_epic_temp_id) if func_epic_temp_id else None
         
-        for d in raw_deps:
-            d_str = str(d)
-            if d_str in temp_id_to_db_id:
-                dep_ticket = next((t2 for t2 in final_tickets if str(t2.get("id")) == d_str), None)
+        print(f"\n=== Processing functional epic: {func_epic_title} ===")
+        
+        backend_epic_db_id = None
+        
+        # Generate backend epic and stories
+        if has_backend:
+            print(f"  Backend PM creating epic and stories...")
+            backend_result = backend_pm.generate_backend_epic_and_stories(functional_epic, prd_content)
+            if backend_result.get("epic"):
+                backend_epic = backend_result["epic"]
                 
-                # If this is a Story depending on an Epic, skip it (use parent_id instead)
-                if ticket_type == "story" and dep_ticket and dep_ticket.get("type") == "epic":
-                    # Stories should not depend on Epics - parent_id handles that relationship
-                    continue
+                # Create backend epic immediately
+                backend_epic_db_id = ticket_system.create_ticket(
+                    type="epic",
+                    title=backend_epic.get("title", "Untitled"),
+                    description=backend_epic.get("description", ""),
+                    assigned_to=backend_epic.get("assigned_to", "Backend Dev"),
+                    dependencies=[],
+                    parent_id=func_epic_db_id
+                )
+                print(f"    [+] Created BACKEND EPIC: {backend_epic.get('title')} (ID: {backend_epic_db_id})")
                 
-                # Epics can depend on other Epics, Stories can depend on other Stories
-                # Check for circular dependency
-                if not has_circular_dependency(t.get("id"), [d_str], final_tickets):
-                    real_deps.append(temp_id_to_db_id[d_str])
+                # Create backend stories immediately with the epic as parent
+                for story in backend_result.get("stories", []):
+                    story_db_id = ticket_system.create_ticket(
+                        type="story",
+                        title=story.get("title", "Untitled"),
+                        description=story.get("description", ""),
+                        assigned_to=story.get("assigned_to", "Backend Dev"),
+                        dependencies=[],
+                        parent_id=backend_epic_db_id
+                    )
+                    print(f"      [+] Created BACKEND STORY: {story.get('title')} (ID: {story_db_id})")
+                
+                print(f"    Created backend epic with {len(backend_result.get('stories', []))} stories")
+        
+        # Generate frontend epic and stories
+        if has_frontend:
+            print(f"  Frontend PM creating epic and stories...")
+            frontend_result = frontend_pm.generate_frontend_epic_and_stories(functional_epic, prd_content)
+            if frontend_result.get("epic"):
+                frontend_epic = frontend_result["epic"]
+                
+                # Create frontend epic immediately (depends on backend epic if it exists)
+                frontend_epic_db_id = ticket_system.create_ticket(
+                    type="epic",
+                    title=frontend_epic.get("title", "Untitled"),
+                    description=frontend_epic.get("description", ""),
+                    assigned_to=frontend_epic.get("assigned_to", "Frontend Dev"),
+                    dependencies=[backend_epic_db_id] if backend_epic_db_id else [],
+                    parent_id=func_epic_db_id
+                )
+                if backend_epic_db_id:
+                    print(f"    [+] Created FRONTEND EPIC: {frontend_epic.get('title')} (ID: {frontend_epic_db_id}, depends on backend)")
                 else:
-                    print(f"  WARNING: Skipping circular dependency for ticket {t.get('title')} -> {dep_ticket.get('title') if dep_ticket else d_str}")
-            else:
-                # Skip unknown dependencies
-                pass
+                    print(f"    [+] Created FRONTEND EPIC: {frontend_epic.get('title')} (ID: {frontend_epic_db_id})")
+                
+                # Create frontend stories immediately with the epic as parent
+                for story in frontend_result.get("stories", []):
+                    story_db_id = ticket_system.create_ticket(
+                        type="story",
+                        title=story.get("title", "Untitled"),
+                        description=story.get("description", ""),
+                        assigned_to=story.get("assigned_to", "Frontend Dev"),
+                        dependencies=[],
+                        parent_id=frontend_epic_db_id
+                    )
+                    print(f"      [+] Created FRONTEND STORY: {story.get('title')} (ID: {story_db_id})")
+                
+                print(f"    Created frontend epic with {len(frontend_result.get('stories', []))} stories")
+    
+    # Cleanup: Delete epics with no stories
+    print(f"\n=== Cleaning up epics with no stories ===")
+    all_tickets = ticket_system.get_tickets()
+    epics = [t for t in all_tickets if t.get("type") == "epic"]
+    stories = [t for t in all_tickets if t.get("type") == "story"]
+    
+    # Build a map of epic IDs to story counts
+    epic_id_to_story_count = {}
+    for story in stories:
+        parent_id = story.get("parent_id")
+        if parent_id:
+            # Normalize parent_id (could be ObjectId or string)
+            parent_id_str = str(parent_id)
+            epic_id_to_story_count[parent_id_str] = epic_id_to_story_count.get(parent_id_str, 0) + 1
+    
+    # Find and delete epics with no stories
+    deleted_count = 0
+    for epic in epics:
+        epic_id = str(epic.get("_id") or epic.get("id"))
+        story_count = epic_id_to_story_count.get(epic_id, 0)
         
-        if real_deps:
-            # Pass as strings - update_ticket_dependencies will convert to ObjectIds
-            real_deps_str = [str(d) for d in real_deps]
-            ticket_system.update_ticket_dependencies(t['real_db_id'], real_deps_str)
-
-        # 2. Update Parent
-        raw_parent = t.get("parent_id")
-        if raw_parent:
-            parent_str = str(raw_parent)
-            if parent_str in temp_id_to_db_id:
-                real_parent = temp_id_to_db_id[parent_str]
-                ticket_system.update_ticket_parent(t['real_db_id'], str(real_parent))
+        if story_count == 0:
+            print(f"  Deleting epic '{epic.get('title')}' (ID: {epic_id}) - no stories")
+            if ticket_system.delete_ticket(epic_id):
+                deleted_count += 1
+    
+    if deleted_count > 0:
+        print(f"  Deleted {deleted_count} epics with no stories")
+    else:
+        print(f"  No epics to delete - all epics have stories")
+    
+    print(f"\n✅ Ticket generation complete!")
+    print(f"   - {len(functional_epics)} functional epics created")
+    print(f"   - All epics and stories created with correct parent relationships")
+    
+    return  # Ticket generation complete
 
     print("\nBuild Planning Complete.")
     print(f"Tickets saved to {ticket_system.local_file} (or MongoDB if configured).")
+    
+    # Automatically run build phase unless --no-build flag is set
+    if not skip_build:
+        print("\n" + "=" * 80)
+        print("Starting Build Phase automatically...")
+        print("=" * 80)
+        build_phase()
+    else:
+        print("\nSkipping build phase (--no-build flag set).")
+        print("Run 'python build.py --build' to execute the build phase later.")
 
 if __name__ == "__main__":
     main()

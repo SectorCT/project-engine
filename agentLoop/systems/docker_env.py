@@ -41,7 +41,7 @@ class DockerEnv:
             print(f"Error building Docker image: {e}")
             raise
 
-    def start_container(self):
+    def start_container(self, has_backend: bool = False):
         """Start the container (ISOLATED and EMPTY)."""
         try:
             # Check if container exists and remove it
@@ -60,6 +60,10 @@ class DockerEnv:
             # Expose port 3000 for frontend (Vite dev server)
             # Map container port 3000 to host port 3000
             ports = {'3000/tcp': 3000}
+            
+            # Expose MongoDB port 6666 on host when backend is present
+            if has_backend:
+                ports['27017/tcp'] = 6666
             
             # NO VOLUMES. We want isolation.
             # Container starts completely empty - no files copied.

@@ -135,6 +135,50 @@ class TicketSystem:
             with open(self.local_file, 'w') as f:
                 json.dump(tickets, f, indent=2)
 
+    def update_ticket_status(self, ticket_id: str, status: str):
+        """
+        Update the status of a ticket.
+        Args:
+            ticket_id: The ID of the ticket to update
+            status: The new status (e.g., 'todo', 'done', 'in_progress')
+        """
+        if self.use_mongo:
+            from bson.objectid import ObjectId
+            try:
+                oid = ObjectId(ticket_id)
+                self.collection.update_one(
+                    {"_id": oid},
+                    {"$set": {"status": status}}
+                )
+            except:
+                # Try with 'id' field if ObjectId conversion fails
+                try:
+                    self.collection.update_one(
+                        {"id": ticket_id},
+                        {"$set": {"status": status}}
+                    )
+                except:
+                    # Try with '_id' as string
+                    self.collection.update_one(
+                        {"_id": ticket_id},
+                        {"$set": {"status": status}}
+                    )
+        else:
+            with open(self.local_file, 'r') as f:
+                tickets = json.load(f)
+            
+            updated = False
+            for t in tickets:
+                # Check both 'id' and '_id' fields
+                if t.get('id') == ticket_id or t.get('_id') == ticket_id:
+                    t['status'] = status
+                    updated = True
+                    break
+            
+            if updated:
+                with open(self.local_file, 'w') as f:
+                    json.dump(tickets, f, indent=2)
+
     def _save_local_ticket(self, ticket: Dict):
         with open(self.local_file, 'r') as f:
             tickets = json.load(f)
@@ -153,3 +197,36 @@ class TicketSystem:
         else:
             with open(self.local_file, 'r') as f:
                 return json.load(f)
+    
+    def delete_ticket(self, ticket_id: str) -> bool:
+        """
+        Delete a ticket by ID.
+        Returns True if deleted, False if not found.
+        """
+        if self.use_mongo:
+            from bson.objectid import ObjectId
+            try:
+                oid = ObjectId(ticket_id)
+                result = self.collection.delete_one({"_id": oid})
+                return result.deleted_count > 0
+            except:
+                # Try with 'id' field if ObjectId conversion fails
+                try:
+                    result = self.collection.delete_one({"id": ticket_id})
+                    return result.deleted_count > 0
+                except:
+                    # Try with '_id' as string
+                    result = self.collection.delete_one({"_id": ticket_id})
+                    return result.deleted_count > 0
+        else:
+            with open(self.local_file, 'r') as f:
+                tickets = json.load(f)
+            
+            original_count = len(tickets)
+            tickets = [t for t in tickets if t.get('id') != ticket_id and t.get('_id') != ticket_id]
+            
+            if len(tickets) < original_count:
+                with open(self.local_file, 'w') as f:
+                    json.dump(tickets, f, indent=2)
+                return True
+            return False

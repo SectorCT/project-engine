@@ -67,6 +67,35 @@ You are pragmatic, clean, and efficient.
             for file in project_structure.get('known_files', []):
                 prompt_parts.append(f"  - {file}")
             
+            # Add MongoDB database information if backend exists
+            if project_structure.get('has_backend', False):
+                prompt_parts.append("\n" + "=" * 80)
+                prompt_parts.append("MONGODB DATABASE ACCESS")
+                prompt_parts.append("=" * 80)
+                prompt_parts.append(
+                    "MongoDB is installed and running in the Docker container.\n"
+                    "- MongoDB URI: mongodb://localhost:27017/project_db\n"
+                    "- MongoDB runs on port 27017 (default port)\n"
+                    "- No authentication required (development mode)\n"
+                    "- MongoDB configuration file: server/mongodb.config.ts\n"
+                    "\n"
+                    "You can use MongoDB in your backend code:\n"
+                    "1. Import the MongoDB URI from server/mongodb.config.ts:\n"
+                    "   import { MONGODB_URI } from './mongodb.config';\n"
+                    "\n"
+                    "2. Install mongodb driver if needed:\n"
+                    "   npm install mongodb\n"
+                    "\n"
+                    "3. Connect to MongoDB:\n"
+                    "   import { MongoClient } from 'mongodb';\n"
+                    "   const client = new MongoClient(MONGODB_URI);\n"
+                    "   await client.connect();\n"
+                    "   const db = client.db('project_db');\n"
+                    "\n"
+                    "4. MongoDB is already running - no need to start it manually.\n"
+                    "   The database is accessible immediately when the container is running."
+                )
+            
             # Add current files in container
             if project_structure.get('current_files'):
                 prompt_parts.append("\nCurrent Files in Container:")
