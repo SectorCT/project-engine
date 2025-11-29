@@ -3,7 +3,7 @@ import time
 
 def run_job(job_id, prompt, callbacks, **kwargs):
     """Lightweight stub orchestrator used for local testing."""
-    callbacks.on_status(callbacks.Status.RUNNING, 'Agents are assembling the plan')
+    callbacks.on_status(callbacks.Status.PLANNING, 'Agents are assembling the plan')
     time.sleep(0.1)
     callbacks.on_step(agent_name='Architect', message=f'Planning application for prompt: {prompt}', order=1)
     time.sleep(0.1)
@@ -21,4 +21,6 @@ def run_job(job_id, prompt, callbacks, **kwargs):
             'metadata': kwargs.get('metadata', {}),
         }
     )
+    callbacks.on_status(callbacks.Status.PRD_READY, 'PRD ready (dummy)')
+    callbacks.on_status(callbacks.Status.TICKETS_READY, 'Tickets ready (dummy)')
 

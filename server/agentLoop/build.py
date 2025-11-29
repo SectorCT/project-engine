@@ -1,7 +1,7 @@
 import sys
 import os
 import time
-from typing import List, Dict
+from typing import Any, Dict, List, Optional
 from agents.pm_agent import PMAgent
 from agents.coder_agent import CoderAgent
 from systems.ticket_system import TicketSystem
@@ -9,7 +9,57 @@ from systems.docker_env import DockerEnv
 from systems.project_initializer import ProjectInitializer
 from config.settings import settings
 
-def build_phase():
+
+class BuildCallbackAdapter:
+    """Lightweight adapter that forwards events to the provided delegate if present."""
+
+    def __init__(self, delegate: Optional[Any] = None):
+        self.delegate = delegate
+
+    def stage(self, stage: str, message: str):
+        if self.delegate and hasattr(self.delegate, 'on_stage'):
+            try:
+                self.delegate.on_stage(stage=stage, message=message)
+            except Exception:
+                pass
+
+    def ticket(self, ticket: Dict, status: str, message: str = '', extra: Optional[Dict[str, Any]] = None):
+        if not self.delegate or not hasattr(self.delegate, 'on_ticket_progress'):
+            return
+        ticket_id = str(ticket.get('id') or ticket.get('_id') or '')
+        payload = extra or {}
+        try:
+            self.delegate.on_ticket_progress(
+                ticket_id=ticket_id,
+                status=status,
+                message=message,
+                extra=payload,
+            )
+        except Exception:
+            pass
+
+    def log(self, message: str):
+        if self.delegate and hasattr(self.delegate, 'on_log'):
+            try:
+                self.delegate.on_log(message)
+            except Exception:
+                pass
+
+    def error(self, message: str):
+        if self.delegate and hasattr(self.delegate, 'on_error'):
+            try:
+                self.delegate.on_error(message)
+            except Exception:
+                pass
+
+    def complete(self, message: str):
+        if self.delegate and hasattr(self.delegate, 'on_complete'):
+            try:
+                self.delegate.on_complete(message)
+            except Exception:
+                pass
+
+def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
     """
     The Build Phase:
     1. Get project structure info from tickets or determine has_backend/has_frontend
@@ -19,9 +69,11 @@ def build_phase():
     5. Coder Agent resolves them using Cursor CLI
     """
     print("\n--- Starting Build Phase ---")
+    cb = BuildCallbackAdapter(callbacks)
+    cb.stage("Build Preparation", "Starting build phase")
     
     # Initialize Systems
-    ticket_system = TicketSystem()
+    ticket_system = TicketSystem(job_id=job_id)
     
     # 1. Get all "todo" tickets
     all_tickets = ticket_system.get_tickets()
@@ -29,11 +81,13 @@ def build_phase():
     # Filter out Epics - we only build Stories/Tasks
     todo_tickets = [
         t for t in all_tickets 
-        if t.get('status') == 'todo' and t.get('type') != 'epic'
+        if t.get('type') != 'epic' and str(t.get('status', 'todo')).lower() in ('todo', 'pending', 'in_progress')
     ]
     
     if not todo_tickets:
         print("No 'todo' tickets found (excluding Epics). Nothing to build.")
+        cb.stage("Build Preparation", "No tickets to execute.")
+        cb.complete("No tickets required execution.")
         return
 
     print(f"Found {len(todo_tickets)} tickets to resolve.")
@@ -49,24 +103,27 @@ def build_phase():
         has_backend = True
         has_frontend = True
     
-    print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
+    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    cb.stage("Environment", f"Project structure resolved. backend={has_backend}, frontend={has_frontend}")
     
     # 3. Get project structure
-    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
-    
     # 4. Initialize Docker Env
     workspace_path = os.getcwd() # Not used for copying, but kept for compatibility
     docker_env = DockerEnv(workspace_path)
     
     try:
+        cb.stage("Environment", "Building Docker image")
         docker_env.build_image()
+        cb.stage("Environment", "Starting Docker container")
         docker_env.start_container()
         
         # 5. Initialize project structure in Docker
+        cb.stage("Environment", "Initializing project structure")
         ProjectInitializer.init_project(project_structure, docker_env)
         
         # 5.5. Install npm dependencies
         print("\nInstalling npm dependencies...")
+        cb.stage("Environment", "Installing npm dependencies")
         exit_code, output = docker_env.exec_run("npm install", workdir="/app")
         if exit_code == 0:
             print("✅ npm install completed successfully!")
@@ -79,13 +136,25 @@ def build_phase():
         
         # 7. Loop through tickets and execute cursor commands
         for ticket in todo_tickets:
+            ticket_id = str(ticket.get('id') or ticket.get('_id') or '')
+            cb.ticket(
+                ticket,
+                'in_progress',
+                message=f"Starting ticket {ticket.get('title')}",
+                extra={'title': ticket.get('title')},
+            )
             # Look up parent context if available
             parent_context = ""
             parent_id = ticket.get("parent_id")
             if parent_id:
-                # Find the epic in all_tickets
-                # Check both mongo string ID and original ID formats just in case
-                parent_epic = next((t for t in all_tickets if str(t.get('_id')) == str(parent_id) or str(t.get('id')) == str(parent_id)), None)
+                parent_epic = next(
+                    (
+                        t
+                        for t in all_tickets
+                        if str(t.get('_id') or t.get('id')) == str(parent_id)
+                    ),
+                    None,
+                )
                 if parent_epic:
                      parent_context = f"Title: {parent_epic.get('title')}\nDescription: {parent_epic.get('description')}"
 
@@ -98,37 +167,29 @@ def build_phase():
                 all_tickets=all_tickets
             )
             
-            # Status updates are commented out for now
-            # if success:
-            #     # Mark as done
-            #     if ticket_system.use_mongo:
-            #         from bson.objectid import ObjectId
-            #         try:
-            #             ticket_system.collection.update_one(
-            #                 {"_id": ObjectId(ticket['_id'])},
-            #                 {"$set": {"status": "done"}}
-            #             )
-            #         except:
-            #              ticket_system.collection.update_one(
-            #                 {"id": ticket['id']},
-            #                 {"$set": {"status": "done"}}
-            #             )
-            #     else:
-            #         # Local JSON update
-            #         import json
-            #         with open(ticket_system.local_file, 'r') as f:
-            #             data = json.load(f)
-            #         for t in data:
-            #             if t.get('id') == ticket.get('id') or t.get('_id') == ticket.get('_id'):
-            #                 t['status'] = 'done'
-            #                 break
-            #         with open(ticket_system.local_file, 'w') as f:
-            #             json.dump(data, f, indent=2)
-            #                 
-            #     print(f"Ticket {ticket.get('title')} marked as DONE.")
-            # else:
-            #     print(f"Ticket {ticket.get('title')} FAILED. Skipping.")
+            if success:
+                ticket['status'] = 'done'
+                cb.ticket(
+                    ticket,
+                    'done',
+                    message=f"Ticket {ticket.get('title')} completed",
+                    extra={'title': ticket.get('title')},
+                )
+                print(f"Ticket {ticket.get('title')} marked as DONE.")
+            else:
+                ticket['status'] = 'failed'
+                cb.ticket(
+                    ticket,
+                    'failed',
+                    message=f"Ticket {ticket.get('title')} failed",
+                    extra={'title': ticket.get('title')},
+                )
+                print(f"Ticket {ticket.get('title')} FAILED. Skipping.")
                 
+        cb.complete("Ticket execution finished")
+    except Exception as exc:
+        cb.error(str(exc))
+        raise
     finally:
         # Cleanup
         # We explicitly do NOT stop the container as requested
@@ -399,6 +460,12 @@ def main():
 
     print("\nBuild Planning Complete.")
     print(f"Tickets saved to {ticket_system.local_file} (or MongoDB if configured).")
+
+
+def run_ticket_builder(job_id: str, callbacks: Optional[Any] = None):
+    """Entry point used by Django backend to execute tickets for a specific job."""
+    return build_phase(job_id=job_id, callbacks=callbacks)
+
 
 if __name__ == "__main__":
     main()

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -12,12 +12,14 @@ from django.utils import timezone
 
 from .agent_loop_bridge import (
     force_requirements_summary,
+    generate_tickets_from_prd,
+    get_prd_renderer,
     handle_requirements_message,
     run_executive_flow,
+    run_ticket_builder,
     start_requirements_session,
-    get_prd_renderer,
 )
-from .models import App, Job, JobMessage, JobStep
+from .models import App, Job, JobMessage, JobStep, Ticket
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,42 @@ def broadcast_job_event(job_id: str, payload: Dict[str, Any]) -> None:
             'payload': payload,
         },
     )
+
+
+def broadcast_ticket_update(
+    ticket: Ticket,
+    *,
+    status: Optional[str] = None,
+    message: str = '',
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    payload = {
+        'kind': 'ticketUpdate',
+        'jobId': str(ticket.job_id),
+        'ticketId': str(ticket.id),
+        'status': status or ticket.status,
+        'title': ticket.title,
+        'type': ticket.type,
+        'assignedTo': ticket.assigned_to,
+        'message': message,
+        'timestamp': timezone.now().isoformat(),
+    }
+    if extra:
+        payload['metadata'] = extra
+    broadcast_job_event(str(ticket.job_id), payload)
+
+
+def set_ticket_status(
+    ticket: Ticket,
+    *,
+    status: str,
+    message: str = '',
+    extra: Optional[Dict[str, Any]] = None,
+) -> Ticket:
+    ticket.status = status
+    ticket.save(update_fields=['status', 'updated_at'])
+    broadcast_ticket_update(ticket, status=status, message=message, extra=extra)
+    return ticket
 
 
 def set_job_status(job_id: str, status: str, message: Optional[str] = None) -> Job:
@@ -105,11 +143,6 @@ def store_app(job_id: str, spec: Dict[str, Any]) -> App:
                 'spec': spec,
             },
         )
-        job.status = Job.Status.DONE
-        job.error_message = ''
-        job.save(update_fields=['status', 'error_message', 'updated_at'])
-
-    set_job_status(job_id, Job.Status.DONE, 'PRD ready')
 
     broadcast_job_event(
         job_id,
@@ -220,13 +253,21 @@ def finalize_requirements(job: Job, summary: str) -> Job:
 
 def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
     """Execute the remaining agentLoop phases once requirements are known."""
+    callbacks.on_status(Job.Status.PLANNING, 'Executive agents are planning the build')
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Executive Planning',
+        message='Executive agents are aligning on the implementation plan.',
+    )
+
     history = run_executive_flow(job.prompt)
     for idx, entry in enumerate(history, start=1):
         record_description(
             job,
             agent=entry['agent'],
             stage='Executive Planning',
-        message=f'{entry["agent"]} is responding.',
+            message=f'{entry["agent"]} is responding.',
         )
         callbacks.on_step(agent_name=entry['agent'], message=entry['content'], order=idx)
 
@@ -239,10 +280,71 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
         'summary': summary_content,
     }
     callbacks.on_app(spec)
-    app = job.app
-    app.prd_markdown = prd_content
-    app.prd_generated_at = timezone.now()
-    app.save(update_fields=['prd_markdown', 'prd_generated_at', 'updated_at'])
+
+    job.refresh_from_db()
+    if not hasattr(job, 'app'):
+        job = Job.objects.select_related('app').get(id=job.id)
+    if job.app:
+        job.app.prd_markdown = prd_content
+        job.app.prd_generated_at = timezone.now()
+        job.app.save(update_fields=['prd_markdown', 'prd_generated_at', 'updated_at'])
+
+    callbacks.on_status(Job.Status.PRD_READY, 'PRD ready for ticketing')
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Executive Planning',
+        message='PRD is finalized. Preparing ticket breakdown.',
+    )
+
+    generate_tickets_for_job(job, callbacks)
+
+
+def generate_tickets_for_job(job: Job, callbacks: 'JobCallbacks') -> int:
+    """Create structured tickets from the PRD and broadcast progress."""
+    app = getattr(job, 'app', None)
+    if app is None or not app.prd_markdown:
+        logger.warning('Job %s missing PRD markdown; skipping ticket generation', job.id)
+        return 0
+
+    callbacks.on_status(Job.Status.TICKETING, 'Generating tickets from PRD')
+    callbacks.on_description(
+        agent='Project Manager',
+        stage='Ticket Generation',
+        message='Project Manager is breaking the PRD into Epics and Stories.',
+    )
+
+    try:
+        ticket_payload = generate_tickets_from_prd(app.prd_markdown)
+    except Exception as exc:  # pragma: no cover - OpenAI failures, etc.
+        logger.exception('Ticket generation failed for job %s: %s', job.id, exc)
+        callbacks.on_description(
+            agent='Project Manager',
+            stage='Ticket Generation',
+            message='Ticket generation failed. Please retry later.',
+        )
+        callbacks.on_error(f'Ticket generation failed: {exc}')
+        return 0
+
+    if not ticket_payload:
+        callbacks.on_description(
+            agent='Project Manager',
+            stage='Ticket Generation',
+            message='Ticket generator returned no actionable work items.',
+        )
+        callbacks.on_status(Job.Status.TICKETS_READY, 'No tickets generated')
+        return 0
+
+    created = _persist_generated_tickets(job, ticket_payload)
+    callbacks.on_description(
+        agent='Project Manager',
+        stage='Ticket Generation',
+        message=f'{created} tickets ready for execution.',
+    )
+    callbacks.on_status(Job.Status.TICKETS_READY, f'{created} tickets ready')
+    from .tasks import run_ticket_builder_task
+    run_ticket_builder_task.delay(str(job.id))
+    return created
 
 
 def _extract_summary(history: Any) -> str:
@@ -252,6 +354,76 @@ def _extract_summary(history: Any) -> str:
             summary_content = entry.get('content', '')
             break
     return summary_content
+
+
+def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> int:
+    """Persist the PM agent output into the Ticket table with correct relations."""
+    if not tickets_data:
+        job.tickets.all().delete()
+        return 0
+
+    temp_map: Dict[str, Ticket] = {}
+    created = 0
+
+    broadcast_job_event(
+        str(job.id),
+        {
+            'kind': 'ticketReset',
+            'jobId': str(job.id),
+            'timestamp': timezone.now().isoformat(),
+        },
+    )
+
+    with transaction.atomic():
+        job.tickets.all().delete()
+
+        for idx, payload in enumerate(tickets_data):
+            temp_id = payload.get('id')
+            if temp_id is None:
+                temp_id = f'auto-{idx}'
+            temp_id = str(temp_id)
+
+            ticket_type = payload.get('type', Ticket.Type.STORY)
+            if ticket_type not in Ticket.Type.values:
+                ticket_type = Ticket.Type.STORY
+
+            ticket = Ticket.objects.create(
+                job=job,
+                type=ticket_type,
+                title=payload.get('title', 'Untitled Ticket')[:255],
+                description=payload.get('description', ''),
+                status=payload.get('status', 'todo')[:32],
+                assigned_to=payload.get('assigned_to', 'Unassigned') or 'Unassigned',
+            )
+            temp_map[temp_id] = ticket
+            created += 1
+            broadcast_ticket_update(
+                ticket,
+                status=ticket.status,
+                message='Ticket initialized',
+                extra={'event': 'created'},
+            )
+
+        for payload in tickets_data:
+            temp_id = payload.get('id')
+            if temp_id is None:
+                continue
+            ticket = temp_map.get(str(temp_id))
+            if not ticket:
+                continue
+
+            parent_id = payload.get('parent_id')
+            if parent_id:
+                parent = temp_map.get(str(parent_id))
+                if parent:
+                    ticket.parent = parent
+                    ticket.save(update_fields=['parent', 'updated_at'])
+
+            dep_ids = [temp_map[str(dep)] for dep in payload.get('dependencies', []) if str(dep) in temp_map]
+            if dep_ids:
+                ticket.dependencies.set(dep_ids)
+
+    return created
 
 
 def _get_requirements_state(job: Job) -> Dict[str, Any]:
@@ -345,4 +517,59 @@ class JobCallbacks:
     def on_description(self, *, agent: str, stage: str, message: str) -> None:
         job = Job.objects.get(id=self.job_id)
         record_description(job, agent=agent, stage=stage, message=message)
+
+
+@dataclass
+class TicketBuildCallbacks:
+    job_id: str
+    _job: Optional[Job] = None
+    has_failures: bool = False
+    failure_messages: List[str] = field(default_factory=list)
+
+    def _get_job(self) -> Job:
+        if self._job is None:
+            self._job = Job.objects.get(id=self.job_id)
+        return self._job
+
+    def on_stage(self, stage: str, message: str) -> None:
+        job = self._get_job()
+        record_description(job, agent='Builder', stage=stage, message=message)
+
+    def on_ticket_progress(
+        self,
+        *,
+        ticket_id: str,
+        status: str,
+        message: str = '',
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        try:
+            ticket = Ticket.objects.get(id=ticket_id, job_id=self.job_id)
+        except Ticket.DoesNotExist:
+            logger.warning('Ticket %s missing for job %s', ticket_id, self.job_id)
+            return
+        set_ticket_status(ticket, status=status, message=message, extra=extra)
+        if status.lower() == 'failed':
+            self.has_failures = True
+            failure_detail = message
+            if not failure_detail and extra and extra.get('error'):
+                failure_detail = extra['error']
+            if failure_detail:
+                self.failure_messages.append(f"{ticket.title}: {failure_detail}")
+            else:
+                self.failure_messages.append(ticket.title)
+
+    def on_log(self, message: str) -> None:
+        job = self._get_job()
+        record_description(job, agent='Builder', stage='Build Execution', message=message)
+
+    def on_error(self, message: str) -> None:
+        fail_job(self.job_id, message=message)
+
+    def on_complete(self, message: str = 'Implementation complete') -> None:
+        if self.has_failures:
+            failure_msg = '; '.join(self.failure_messages) if self.failure_messages else 'One or more tickets failed'
+            fail_job(self.job_id, message=failure_msg)
+        else:
+            set_job_status(self.job_id, Job.Status.BUILD_DONE, message)
 

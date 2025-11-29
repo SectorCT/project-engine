@@ -30,6 +30,8 @@ Jobs emit updates to the WebSocket group `job_<job_id>` and persist the same inf
 - `GET /api/apps/<id>/` – retrieve an app by ID.
 - `GET /api/apps/by-job/<job_id>/` – fetch the app that belongs to a specific job.
 - `GET /api/job-messages/?job_id=<job_id>` – fetch chat + description history for a specific job (oldest → newest).
+- `GET /api/tickets/?job_id=<job_id>` – list the generated epics/stories for a job (owner-only).
+- `GET /api/tickets/<ticket_id>/` – retrieve a single ticket with its metadata/dependencies.
 - WebSocket: `ws://<host>/ws/jobs/<job_id>/` (include `Authorization: Bearer <JWT>`; in dev you may also append `?token=<JWT>` when `ALLOW_WS_TOKEN_QUERY` is enabled for quick testing).
 
 All endpoints require authentication (JWT) except those under `/api/auth/`.
@@ -40,8 +42,12 @@ All endpoints require authentication (JWT) except those under `/api/auth/`.
 2. The backend immediately invokes the agentLoop `RequirementsGatherer`, records the agent’s reply, and streams it via `/ws/jobs/<job_id>/`.
 3. The user and the Client Relations agent continue exchanging `{"kind":"chat","content":"..."}` messages over the socket. Every turn is saved in `JobMessage` and broadcast to connected clients.
 4. Once the agent emits `REQUIREMENTS_SUMMARY`, the backend finalizes the requirements, updates the job status to `queued`, and enqueues `jobs.tasks.run_job_task`.
-5. The Celery worker sets the job status to `running` and hands the refined requirements to the agentLoop executive discussion (CEO/CTO/Secretary). Each agent turn is recorded as a `JobStep` and streamed.
-6. When the discussion finishes, the generated spec (requirements, history, PRD summary) is attached to `App.spec` and broadcast with an `app` event.
+5. The Celery worker switches the job status to `planning` and hands the refined requirements to the agentLoop executive discussion (CEO/CTO/Secretary). Each agent turn is recorded as a `JobStep` and streamed.
+6. When the discussion finishes, the generated spec (requirements, history, PRD summary) is attached to `App.spec` and broadcast with a `prdReady` event. The job status moves to `prd_ready`.
+7. Immediately after the PRD is stored, the Project Manager agent breaks it into Epics/Stories/Tickets. Progress is streamed via `stageUpdate` messages, the job status transitions to `ticketing`, and settles on `tickets_ready` when all tickets are persisted (or `failed` if the ticket pass errors out). The `/api/tickets/` endpoint and `ticketUpdate` WebSocket events expose the backlog in real time.
+8. Once the backlog exists, a second Celery task spins up the agentLoop build environment, iterates over every ticket, and reports granular progress (`building` → `build_done`) through `jobStatus`, `ticketUpdate`, and `stageUpdate` events. Ticket status transitions (`todo` → `in_progress` → `done/failed`) are stored in the database and streamed to connected clients.
+
+**Job Status Cheat Sheet** – `collecting` → `queued` → `planning` → `prd_ready` → `ticketing` → `tickets_ready` → `building` → `build_done` (with `failed` available at any point on unrecoverable errors). Clients should react to these status updates from the WebSocket `jobStatus` events.
 
 You can still swap the orchestrator by pointing `AGENT_ORCHESTRATOR_PATH` to another callable, but the default now integrates directly with `agentLoop`.
 
@@ -87,7 +93,7 @@ The compose file automatically runs migrations on start. Copy `.envtemplate` to 
    ```json
    {"kind": "chat", "content": "Here are more details about the target users."}
    ```
-4. Observe `stageUpdate`, `jobStatus`, `agentDialogue`, and `prdReady` payloads as the job progresses from requirements gathering through build-out.
+4. Observe `stageUpdate`, `jobStatus`, `agentDialogue`, `prdReady`, and `ticketUpdate` payloads as the job progresses from requirements gathering through build-out.
 
 ## Next Steps
 

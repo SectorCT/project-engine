@@ -24,6 +24,7 @@ AGENT_LOOP_PATH=agentLoop
 # OpenAI / Agents
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
+CURSOR_API_KEY=
 
 # Email Configuration
 EMAIL_HOST=smtp.gmail.com
