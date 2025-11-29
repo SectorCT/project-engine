@@ -195,3 +195,6 @@ AGENT_ORCHESTRATOR_PATH = os.getenv(
     'AGENT_ORCHESTRATOR_PATH',
     'jobs.orchestrators.agent_loop.run_job',
 )
+
+ALLOW_WS_TOKEN_QUERY = os.getenv('ALLOW_WS_TOKEN_QUERY', str(DEBUG)).lower() == 'true'
+ALLOW_JOB_PURGE = os.getenv('ALLOW_JOB_PURGE', str(DEBUG)).lower() == 'true'

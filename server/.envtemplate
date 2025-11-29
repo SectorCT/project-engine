@@ -4,6 +4,8 @@ SECRET_KEY=change-me
 ALLOWED_HOSTS=localhost,127.0.0.1
 CORS_ALLOWED_ORIGINS=http://localhost:3000
 CSRF_TRUSTED_ORIGINS=http://localhost:3000
+ALLOW_WS_TOKEN_QUERY=True
+ALLOW_JOB_PURGE=True
 
 # Database
 DB_NAME=waypoint_db

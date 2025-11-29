@@ -10,6 +10,22 @@ class JobMessageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class JobMessageCreateSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(write_only=True)
+
+    class Meta:
+        model = JobMessage
+        fields = ('job_id', 'role', 'sender', 'content', 'metadata')
+
+    def validate_job_id(self, value):
+        try:
+            job = Job.objects.get(id=value, owner=self.context['request'].user)
+        except Job.DoesNotExist as exc:
+            raise serializers.ValidationError('Job not found') from exc
+        self.context['job'] = job
+        return value
+
+
 class JobStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobStep
@@ -56,6 +72,12 @@ class JobCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Job
         fields = ('prompt',)
+
+
+class JobUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Job
+        fields = ('initial_prompt',)
 
 
 class AppSerializer(serializers.ModelSerializer):
