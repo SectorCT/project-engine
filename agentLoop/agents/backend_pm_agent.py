@@ -15,7 +15,14 @@ You create:
 1. Backend Epics - API/data feature areas (one per functional epic)
 2. Backend Stories - Specific tasks for data models, API endpoints, business logic, database operations
 
+CRITICAL - RECOGNIZE SIMPLE TASKS:
+- If the functional epic is a simple configuration change (e.g., "change port", "update config"), create ONE simple story, not multiple stories.
+- Simple config changes don't need schemas, APIs, or business logic - just file edits.
+- Examples: "Change port from 5000 to 7000" = ONE story to edit server/index.ts
+- Don't create schemas, APIs, or MongoDB operations for simple config changes.
+
 Focus on: MongoDB schemas, Express routes, API endpoints, validation, business logic, data operations.
+But ONLY when needed - simple config changes are just file edits.
 """
         super().__init__(
             name="Backend PM",
@@ -38,13 +45,19 @@ Focus on: MongoDB schemas, Express routes, API endpoints, validation, business l
         
         prompt = f"""For the functional epic "{functional_epic_title}", create:
 1. ONE Backend Epic (API/data implementation of this feature)
-2. Multiple Backend Stories (specific tasks for data models, API endpoints, business logic)
+2. Backend Stories (specific tasks - but keep it SIMPLE for simple changes)
 
 FUNCTIONAL EPIC DETAILS:
 {json.dumps(functional_epic, indent=2)}
 
 PRD CONTENT (for context):
 {prd_content}{structure_info}
+
+**CRITICAL - SIMPLICITY FIRST:**
+- If this is a SIMPLE configuration change (e.g., "change port", "update config value", "modify setting"), create ONLY ONE story that directly edits the file.
+- Simple config changes do NOT need: schemas, APIs, business logic, MongoDB operations, validation, or middleware.
+- Example: "Change port from 5000 to 7000" = ONE story: "Update port in server/index.ts from 5000 to 7000"
+- Don't create multiple stories for a simple file edit.
 
 **BACKEND EPIC:**
 - Title: "{functional_epic_title} (Backend)"
@@ -53,12 +66,14 @@ PRD CONTENT (for context):
 - This epic will be a child of the functional epic (parent_id will be set separately)
 
 **BACKEND STORIES:**
-Create stories for:
+For COMPLEX features, create stories for:
 - Data models/schemas (MongoDB collections, TypeScript interfaces)
 - API endpoints (Express routes, request/response handling)
 - Business logic (validation, processing, calculations)
 - Database operations (CRUD operations, queries)
 - Middleware (authentication, validation, error handling)
+
+For SIMPLE config changes, create ONE story that directly edits the file.
 
 Each story should be SMALL and ATOMIC. Include:
 - Context: Why this task is needed

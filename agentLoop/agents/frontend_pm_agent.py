@@ -15,7 +15,14 @@ You create:
 1. Frontend Epics - UI/UX feature areas (one per functional epic)
 2. Frontend Stories - Specific tasks for UI components, pages, API integration, user interactions
 
+CRITICAL - RECOGNIZE SIMPLE TASKS:
+- If the functional epic is a simple configuration change (e.g., "change port", "update config"), create ONE simple story, not multiple stories.
+- Simple config changes don't need components, pages, or API integration - just file edits.
+- Examples: "Change port from 5000 to 7000" = ONE story to edit vite.config.ts
+- Don't create components, pages, or API integration for simple config changes.
+
 Focus on: React components, pages, forms, API calls, user interactions, displays, routing.
+But ONLY when needed - simple config changes are just file edits.
 """
         super().__init__(
             name="Frontend PM",
@@ -38,13 +45,19 @@ Focus on: React components, pages, forms, API calls, user interactions, displays
         
         prompt = f"""For the functional epic "{functional_epic_title}", create:
 1. ONE Frontend Epic (UI/UX implementation of this feature)
-2. Multiple Frontend Stories (specific tasks for UI components, pages, API integration)
+2. Frontend Stories (specific tasks - but keep it SIMPLE for simple changes)
 
 FUNCTIONAL EPIC DETAILS:
 {json.dumps(functional_epic, indent=2)}
 
 PRD CONTENT (for context):
 {prd_content}{structure_info}
+
+**CRITICAL - SIMPLICITY FIRST:**
+- If this is a SIMPLE configuration change (e.g., "change port", "update config value", "modify setting"), create ONLY ONE story that directly edits the file.
+- Simple config changes do NOT need: components, pages, API integration, user interactions, state management, or routing.
+- Example: "Change port from 5000 to 7000" = ONE story: "Update port in vite.config.ts from 5000 to 7000"
+- Don't create multiple stories for a simple file edit.
 
 **FRONTEND EPIC:**
 - Title: "{functional_epic_title} (Frontend)"
@@ -53,13 +66,15 @@ PRD CONTENT (for context):
 - This epic will be a child of the functional epic (parent_id will be set separately)
 
 **FRONTEND STORIES:**
-Create stories for:
+For COMPLEX features, create stories for:
 - UI components (forms, displays, buttons, modals, etc.)
 - Pages/routes
 - API integration (calling backend endpoints)
 - User interactions (click handlers, form submissions, etc.)
 - State management
 - Routing
+
+For SIMPLE config changes, create ONE story that directly edits the file.
 
 Each story should be SMALL and ATOMIC. Include:
 - Context: Why this task is needed

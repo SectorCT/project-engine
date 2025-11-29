@@ -419,9 +419,21 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Start server
-app.listen(PORT, () => {
+// Start server with error handling
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Error: Port ${PORT} is already in use.`);
+    console.error(`   The server is likely already running.`);
+    console.error(`   To stop it, run: pkill -f "tsx server/index.ts" or find the process with: lsof -i :${PORT}`);
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+    process.exit(1);
+  }
 });
 '''
     _write_file_to_docker(docker_env, "/app/server/index.ts", server_index)

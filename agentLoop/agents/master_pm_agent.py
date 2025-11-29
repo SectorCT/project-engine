@@ -14,8 +14,14 @@ Your goal is to read a Product Requirement Document (PRD) and identify major fun
 You create HIGH-LEVEL functional epics that describe WHAT needs to be built, not HOW.
 These epics will later be broken down by Frontend and Backend PM agents into technical implementation epics.
 
+IMPORTANT - RECOGNIZE SIMPLE TASKS:
+- If the PRD describes a simple configuration change (e.g., "change port from X to Y", "update a setting", "modify a config file"), create ONE simple epic for it.
+- If the PRD describes a small file edit or simple change, create ONE simple epic - don't overcomplicate it.
+- Simple tasks should result in 1 epic, not multiple epics.
+
 DO NOT split by frontend/backend - focus on functionality and features.
 DO NOT create a "Project Setup" epic - project initialization is handled automatically.
+DO NOT overcomplicate simple tasks - a port change is ONE task, not multiple epics.
 """
         super().__init__(
             name="Master PM",
@@ -33,8 +39,15 @@ DO NOT create a "Project Setup" epic - project initialization is handled automat
         prompt = f"""Here is the PRD. Identify the major functional feature areas (Epics).
 These should be FUNCTIONAL features, not technical implementations.
 
+CRITICAL - SIMPLICITY FIRST:
+- If this is a simple configuration change (e.g., "change port", "update setting", "modify config"), create ONE simple epic.
+- If this is a small file edit or simple change, create ONE epic - don't create multiple epics for simple tasks.
+- Examples of simple tasks: "Change port from 5000 to 7000", "Update API endpoint URL", "Change default value", "Modify config file".
+- For simple tasks, create 1 epic, not 2-3 epics.
+
 DO NOT create a "Project Setup" epic - the project structure is already initialized automatically.
 DO NOT split by frontend/backend - focus on what features need to be built.
+DO NOT overcomplicate simple tasks.
 
 PRD CONTENT:
 {prd_content}{structure_context}

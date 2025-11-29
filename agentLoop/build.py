@@ -2,11 +2,16 @@ import sys
 import os
 import time
 import hashlib
-from typing import List, Dict
+from typing import List, Dict, Optional
 from agents.master_pm_agent import MasterPMAgent
 from agents.frontend_pm_agent import FrontendPMAgent
 from agents.backend_pm_agent import BackendPMAgent
 from agents.coder_agent import CoderAgent
+from agents.ba_agent import BAAgent
+from requirements.gatherer import RequirementsGatherer
+from discussion.orchestrator import Orchestrator
+from output.json_generator import JSONGenerator
+from output.prd_generator import PRDGenerator
 from systems.ticket_system import TicketSystem
 from systems.docker_env import DockerEnv
 from systems.project_initializer import ProjectInitializer
@@ -33,17 +38,19 @@ def generate_project_id(prd_path: str = None, prd_content: str = None) -> str:
         # Last resort: timestamp-based
         return f"project_{int(time.time())}"
 
-def build_phase(prd_path: str = None):
+def build_phase(prd_path: str = None, project_id: str = None, skip_init: bool = False):
     """
     The Build Phase:
     1. Get project structure info from PRD (if provided) or determine from tickets
-    2. Spin up Docker Environment
-    3. Initialize project structure in Docker
+    2. Spin up Docker Environment (reuse existing if project_id provided)
+    3. Initialize project structure in Docker (skip if skip_init=True)
     4. Iterate through tickets
     5. Coder Agent resolves them using Cursor CLI
     
     Args:
         prd_path: Optional path to PRD file to determine project structure (backend/frontend)
+        project_id: Optional project ID to reuse existing container
+        skip_init: If True, skip project initialization (assumes project already exists)
     """
     print("\n--- Starting Build Phase ---")
     
@@ -67,9 +74,20 @@ def build_phase(prd_path: str = None):
 
     # 2. Determine has_backend and has_frontend, and generate project ID
     prd_content = None
-    project_id = None
+    has_backend = None
+    has_frontend = None
     
-    if prd_path and os.path.exists(prd_path):
+    # Use provided project_id, or generate from PRD
+    if project_id:
+        print(f"Using existing Project ID: {project_id}")
+        if prd_path and os.path.exists(prd_path):
+            with open(prd_path, 'r') as f:
+                prd_content = f.read()
+            # Determine structure from PRD
+            prd_lower = prd_content.lower()
+            has_backend = any(keyword in prd_lower for keyword in ['backend', 'api', 'server', 'database', 'mongodb', 'express'])
+            has_frontend = any(keyword in prd_lower for keyword in ['frontend', 'ui', 'component', 'react', 'vite', 'interface'])
+    elif prd_path and os.path.exists(prd_path):
         print(f"Reading PRD from: {prd_path} to determine project structure...")
         with open(prd_path, 'r') as f:
             prd_content = f.read()
@@ -82,24 +100,25 @@ def build_phase(prd_path: str = None):
         prd_lower = prd_content.lower()
         has_backend = any(keyword in prd_lower for keyword in ['backend', 'api', 'server', 'database', 'mongodb', 'express'])
         has_frontend = any(keyword in prd_lower for keyword in ['frontend', 'ui', 'component', 'react', 'vite', 'interface'])
-        
-        # Default to both if we can't determine from PRD
-        if not has_backend and not has_frontend:
-            has_backend = True
-            has_frontend = True
     else:
         # Fallback: determine from tickets
         has_backend = any('backend' in str(t.get('title', '')).lower() or 'api' in str(t.get('title', '')).lower() or 'server' in str(t.get('title', '')).lower() for t in all_tickets)
         has_frontend = any('frontend' in str(t.get('title', '')).lower() or 'ui' in str(t.get('title', '')).lower() or 'component' in str(t.get('title', '')).lower() for t in all_tickets)
         
-        # Default to both if we can't determine
-        if not has_backend and not has_frontend:
-            has_backend = True
-            has_frontend = True
-        
         # Generate project ID from timestamp if no PRD
-        project_id = generate_project_id()
-        print(f"Project ID: {project_id} (generated from timestamp - no PRD provided)")
+        if not project_id:
+            project_id = generate_project_id()
+            print(f"Project ID: {project_id} (generated from timestamp - no PRD provided)")
+    
+    # Default to both if we can't determine
+    if has_backend is None or has_frontend is None:
+        if has_backend is None:
+            has_backend = True
+        if has_frontend is None:
+            has_frontend = True
+    elif not has_backend and not has_frontend:
+        has_backend = True
+        has_frontend = True
     
     print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
     
@@ -114,33 +133,47 @@ def build_phase(prd_path: str = None):
         docker_env.build_image()
         docker_env.start_container(has_backend=has_backend)
         
-        # 5. Initialize project structure in Docker
-        ProjectInitializer.init_project(project_structure, docker_env)
-        
-        # 5.5. Start MongoDB service if backend exists
-        if has_backend:
-            print("\nStarting MongoDB service...")
-            # MongoDB will be started by _setup_mongodb() in init_project()
-            # But we verify it's running here
-            time.sleep(2)  # Give MongoDB time to start
-            exit_code, output = docker_env.exec_run(
-                "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
-                workdir="/app"
-            )
+        # 5. Initialize project structure in Docker (skip if continuing existing project)
+        if not skip_init:
+            print("\nInitializing project structure in Docker...")
+            ProjectInitializer.init_project(project_structure, docker_env)
+            
+            # 5.5. Start MongoDB service if backend exists
+            if has_backend:
+                print("\nStarting MongoDB service...")
+                # MongoDB will be started by _setup_mongodb() in init_project()
+                # But we verify it's running here
+                time.sleep(2)  # Give MongoDB time to start
+                exit_code, output = docker_env.exec_run(
+                    "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+                    workdir="/app"
+                )
+                if exit_code == 0:
+                    print("✅ MongoDB is running and accessible.")
+                else:
+                    print(f"⚠️  MongoDB verification failed (exit code: {exit_code})")
+                    print(f"Output: {output[:500]}")
+            
+            # 5.5. Install npm dependencies
+            print("\nInstalling npm dependencies...")
+            exit_code, output = docker_env.exec_run("npm install", workdir="/app")
             if exit_code == 0:
-                print("✅ MongoDB is running and accessible.")
+                print("✅ npm install completed successfully!")
             else:
-                print(f"⚠️  MongoDB verification failed (exit code: {exit_code})")
+                print(f"⚠️  npm install had issues (exit code: {exit_code})")
                 print(f"Output: {output[:500]}")
-        
-        # 5.5. Install npm dependencies
-        print("\nInstalling npm dependencies...")
-        exit_code, output = docker_env.exec_run("npm install", workdir="/app")
-        if exit_code == 0:
-            print("✅ npm install completed successfully!")
         else:
-            print(f"⚠️  npm install had issues (exit code: {exit_code})")
-            print(f"Output: {output[:500]}")
+            print("\nSkipping project initialization (using existing project)...")
+            # Verify MongoDB is running if backend exists
+            if has_backend:
+                exit_code, output = docker_env.exec_run(
+                    "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+                    workdir="/app"
+                )
+                if exit_code == 0:
+                    print("✅ MongoDB is running and accessible.")
+                else:
+                    print(f"⚠️  MongoDB may not be running (exit code: {exit_code})")
         
         # 6. Initialize Coder Agent
         coder_agent = CoderAgent()
@@ -322,7 +355,280 @@ def init_structure_only(prd_path: str = None):
         raise
 
 
+def continue_project(project_id: str = None, prd_path: str = None):
+    """
+    Continue working on an existing project:
+    1. Get user input for new requirements/changes
+    2. Run BA (more forgiving) to clarify requirements
+    3. Run CEO/CTO discussion
+    4. Generate new tickets
+    5. Execute build phase in existing project container
+    
+    Args:
+        project_id: Project ID to continue (if None, will try to extract from PRD)
+        prd_path: Optional PRD path to extract project_id from
+    """
+    print("\n" + "=" * 50)
+    print("   Continue Existing Project")
+    print("=" * 50)
+    
+    # Determine project_id if not provided
+    if not project_id and prd_path and os.path.exists(prd_path):
+        with open(prd_path, 'r') as f:
+            prd_content = f.read()
+        project_id = generate_project_id(prd_path=prd_path, prd_content=prd_content)
+        print(f"Extracted Project ID from PRD: {project_id}")
+    elif not project_id:
+        project_id = input("\nEnter Project ID (or press Enter to generate from PRD): ").strip()
+        if not project_id and prd_path:
+            with open(prd_path, 'r') as f:
+                prd_content = f.read()
+            project_id = generate_project_id(prd_path=prd_path, prd_content=prd_content)
+            print(f"Generated Project ID: {project_id}")
+        elif not project_id:
+            print("Error: Project ID is required to continue an existing project.")
+            return
+    
+    print(f"\nContinuing project: {project_id}")
+    print(f"Container: project_engine_{project_id}_container")
+    
+    # Step 1: Get user input for new requirements
+    print("\n" + "=" * 50)
+    print("STEP 1: New Requirements/Changes")
+    print("=" * 50)
+    new_requirements_input = input("\nWhat new features, changes, or improvements would you like to add?\nEnter your requirements: ")
+    
+    if not new_requirements_input.strip():
+        print("No requirements provided. Exiting.")
+        return
+    
+    # Step 2: Run BA (more forgiving) to clarify requirements
+    print("\n" + "=" * 50)
+    print("STEP 2: Business Analysis (Forgiving BA)")
+    print("=" * 50)
+    ba_agent = BAAgent()
+    
+    # Initial probe
+    response = ba_agent.get_response(
+        f"We're continuing work on an existing project. The user wants to add: '{new_requirements_input}'. "
+        f"Help clarify these requirements. Be forgiving and flexible. If you have enough info, summarize starting with 'REQUIREMENTS_SUMMARY:'."
+    )
+    print(f"\n{ba_agent.name}: {response}\n")
+    
+    requirements = None
+    round_count = 0
+    max_rounds = 3  # Fewer rounds for continuing projects
+    
+    while round_count < max_rounds:
+        if "REQUIREMENTS_SUMMARY:" in response:
+            requirements = response.split("REQUIREMENTS_SUMMARY:")[1].strip()
+            break
+        
+        # Get user input
+        user_input = input("You (optional clarification, or press Enter to proceed): ").strip()
+        if not user_input:
+            # User is satisfied, force summary
+            final_response = ba_agent.get_response("Please summarize the requirements as they stand now, starting with 'REQUIREMENTS_SUMMARY:'.")
+            if "REQUIREMENTS_SUMMARY:" in final_response:
+                requirements = final_response.split("REQUIREMENTS_SUMMARY:")[1].strip()
+            else:
+                requirements = final_response
+            break
+        
+        round_count += 1
+        response = ba_agent.get_response(user_input)
+        print(f"\n{ba_agent.name}: {response}\n")
+    
+    if not requirements:
+        requirements = response.split("REQUIREMENTS_SUMMARY:")[1].strip() if "REQUIREMENTS_SUMMARY:" in response else response
+    
+    print("\n------------------------------------------")
+    print("Finalized Requirements Summary:")
+    print(requirements)
+    print("------------------------------------------\n")
+    
+    # Step 3: Executive Discussion (CEO, CTO)
+    print("\n" + "=" * 50)
+    print("STEP 3: Executive Discussion")
+    print("=" * 50)
+    print("Initializing Executive Team...")
+    orchestrator = Orchestrator(requirements)
+    history = orchestrator.start_discussion()
+    
+    # Step 4: Generate PRD for new requirements
+    print("\n" + "=" * 50)
+    print("STEP 4: Generating PRD for New Requirements")
+    print("=" * 50)
+    
+    # Generate a new PRD file for these requirements
+    timestamp = int(time.time())
+    project_name = f"project_continuation_{project_id}_{timestamp}"
+    
+    json_gen = JSONGenerator()
+    json_gen.generate_output(requirements, history, project_name)
+    
+    prd_gen = PRDGenerator()
+    new_prd_filename = prd_gen.generate_prd(requirements, history, project_name)
+    
+    if not os.path.isabs(new_prd_filename):
+        new_prd_path = os.path.abspath(new_prd_filename)
+    else:
+        new_prd_path = new_prd_filename
+    
+    print(f"\nNew PRD generated: {new_prd_path}")
+    
+    # Step 5: Generate tickets from new PRD (same as main flow)
+    print("\n" + "=" * 50)
+    print("STEP 5: Generating New Tickets")
+    print("=" * 50)
+    
+    # Read the new PRD
+    with open(new_prd_path, 'r') as f:
+        new_prd_content = f.read()
+    
+    # Initialize ticket system
+    ticket_system = TicketSystem()
+    
+    # Determine has_backend and has_frontend from new PRD
+    prd_lower = new_prd_content.lower()
+    has_backend = any(keyword in prd_lower for keyword in ['backend', 'api', 'server', 'database', 'mongodb', 'express'])
+    has_frontend = any(keyword in prd_lower for keyword in ['frontend', 'ui', 'component', 'react', 'vite', 'interface'])
+    
+    # Default to both if we can't determine
+    if not has_backend and not has_frontend:
+        has_backend = True
+        has_frontend = True
+    
+    print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
+    
+    # Get project structure
+    project_structure_dict = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    project_structure = ProjectInitializer.get_structure_summary(project_structure_dict)
+    
+    # Generate tickets using PM agents (same as main flow)
+    master_pm = MasterPMAgent()
+    master_pm.project_structure = project_structure
+    
+    print("\n=== Master PM creating functional epics ===")
+    functional_epics = master_pm.generate_functional_epics(new_prd_content)
+    
+    if not functional_epics:
+        print("No functional epics were generated. Please check the logs or try again.")
+        return
+    
+    print(f"Generated {len(functional_epics)} functional epics.")
+    
+    # Create functional epics
+    print("\n=== Creating functional epics ===")
+    functional_epic_db_ids = {}
+    
+    for epic in functional_epics:
+        func_epic_temp_id = str(epic.get("id")) if epic.get("id") else None
+        func_epic_db_id = ticket_system.create_ticket(
+            type="epic",
+            title=epic.get("title", "Untitled"),
+            description=epic.get("description", ""),
+            assigned_to=epic.get("assigned_to", "Master PM"),
+            dependencies=[],
+            parent_id=None
+        )
+        if func_epic_temp_id:
+            functional_epic_db_ids[func_epic_temp_id] = func_epic_db_id
+        print(f"  [+] Created FUNCTIONAL EPIC: {epic.get('title')} (ID: {func_epic_db_id})")
+    
+    # Generate frontend and backend epics/stories
+    frontend_pm = FrontendPMAgent()
+    frontend_pm.project_structure = project_structure
+    
+    backend_pm = BackendPMAgent()
+    backend_pm.project_structure = project_structure
+    
+    backend_epic_db_ids = {}
+    
+    for functional_epic in functional_epics:
+        func_epic_title = functional_epic.get("title", "")
+        func_epic_temp_id = str(functional_epic.get("id")) if functional_epic.get("id") else None
+        func_epic_db_id = functional_epic_db_ids.get(func_epic_temp_id) if func_epic_temp_id else None
+        
+        print(f"\n=== Processing functional epic: {func_epic_title} ===")
+        
+        backend_epic_db_id = None
+        
+        # Generate backend epic and stories
+        if has_backend:
+            print(f"  Backend PM creating epic and stories...")
+            backend_result = backend_pm.generate_backend_epic_and_stories(functional_epic, new_prd_content)
+            if backend_result.get("epic"):
+                backend_epic = backend_result["epic"]
+                
+                backend_epic_db_id = ticket_system.create_ticket(
+                    type="epic",
+                    title=backend_epic.get("title", "Untitled"),
+                    description=backend_epic.get("description", ""),
+                    assigned_to=backend_epic.get("assigned_to", "Backend Dev"),
+                    dependencies=[],
+                    parent_id=func_epic_db_id
+                )
+                print(f"    [+] Created BACKEND EPIC: {backend_epic.get('title')} (ID: {backend_epic_db_id})")
+                
+                for story in backend_result.get("stories", []):
+                    story_db_id = ticket_system.create_ticket(
+                        type="story",
+                        title=story.get("title", "Untitled"),
+                        description=story.get("description", ""),
+                        assigned_to=story.get("assigned_to", "Backend Dev"),
+                        dependencies=[],
+                        parent_id=backend_epic_db_id
+                    )
+                    print(f"      [+] Created BACKEND STORY: {story.get('title')} (ID: {story_db_id})")
+        
+        # Generate frontend epic and stories
+        if has_frontend:
+            print(f"  Frontend PM creating epic and stories...")
+            frontend_result = frontend_pm.generate_frontend_epic_and_stories(functional_epic, new_prd_content)
+            if frontend_result.get("epic"):
+                frontend_epic = frontend_result["epic"]
+                
+                frontend_epic_db_id = ticket_system.create_ticket(
+                    type="epic",
+                    title=frontend_epic.get("title", "Untitled"),
+                    description=frontend_epic.get("description", ""),
+                    assigned_to=frontend_epic.get("assigned_to", "Frontend Dev"),
+                    dependencies=[backend_epic_db_id] if backend_epic_db_id else [],
+                    parent_id=func_epic_db_id
+                )
+                print(f"    [+] Created FRONTEND EPIC: {frontend_epic.get('title')} (ID: {frontend_epic_db_id})")
+                
+                for story in frontend_result.get("stories", []):
+                    story_db_id = ticket_system.create_ticket(
+                        type="story",
+                        title=story.get("title", "Untitled"),
+                        description=story.get("description", ""),
+                        assigned_to=story.get("assigned_to", "Frontend Dev"),
+                        dependencies=[],
+                        parent_id=frontend_epic_db_id
+                    )
+                    print(f"      [+] Created FRONTEND STORY: {story.get('title')} (ID: {story_db_id})")
+    
+    print(f"\n✅ New tickets generated for project continuation!")
+    
+    # Step 6: Execute build phase with existing project
+    print("\n" + "=" * 80)
+    print("STEP 6: Building New Features in Existing Project")
+    print("=" * 80)
+    
+    # Build phase will reuse the existing container
+    build_phase(prd_path=new_prd_path, project_id=project_id, skip_init=True)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--continue":
+        # Continue existing project
+        project_id = sys.argv[2] if len(sys.argv) > 2 else None
+        prd_path = sys.argv[3] if len(sys.argv) > 3 else None
+        continue_project(project_id=project_id, prd_path=prd_path)
+        return
+    
     if len(sys.argv) > 1 and sys.argv[1] == "--build":
         # Check if PRD path is provided as second argument
         prd_path = sys.argv[2] if len(sys.argv) > 2 else None
@@ -336,11 +642,13 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python build.py <path_to_prd.md> [--no-build]")
         print("       python build.py --build [<path_to_prd.md>]  # Build from existing tickets (optionally use PRD for structure)")
-        print("       python build.py --init       # Initialize structure only (for testing)")
+        print("       python build.py --continue [<project_id>] [<prd_path>]  # Continue existing project with new requirements")
+        print("       python build.py --init [<prd_path>]  # Initialize structure only (for testing)")
         print("")
         print("By default, running with a PRD will generate tickets AND run the build phase.")
         print("Use --no-build to skip the build phase after ticket generation.")
         print("Use --build <prd_path> to build from existing tickets but use PRD to determine project structure.")
+        print("Use --continue <project_id> to continue working on an existing project with new requirements.")
         return
 
     # Check for --no-build flag

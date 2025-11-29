@@ -373,9 +373,6 @@ PROMPT_EOF"
         update_prompt_cmd = f"python3 -c \"import base64; open('/tmp/cursor_prompt.txt', 'w').write(base64.b64decode('{enhanced_prompt_b64}').decode('utf-8'))\""
         docker_env.exec_run(update_prompt_cmd, workdir="/app")
         
-        # Wait 10 seconds before execution to avoid rate limiting
-        print(f"[{self.name}] Waiting 10 seconds before execution to avoid rate limiting...")
-        time.sleep(10)
         print(f"[{self.name}] Starting execution now...")
         
         # Execute the command and capture output

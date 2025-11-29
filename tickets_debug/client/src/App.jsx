@@ -468,6 +468,11 @@ const TicketCard = ({ ticket, getTicketTitle, getStatusColor, getTicketById, isC
 
 const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fileError, projectId, onProjectIdChange, onFileSelect, onRefresh }) => {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['/app']));
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const toggleExpand = (path) => {
     const newExpanded = new Set(expandedPaths);
@@ -477,6 +482,56 @@ const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fi
       newExpanded.add(path);
     }
     setExpandedPaths(newExpanded);
+  };
+
+  // Initialize edited content when file content changes
+  useEffect(() => {
+    if (fileContent && fileContent.content !== undefined) {
+      setEditedContent(fileContent.content);
+      setIsEditing(false);
+      setSaveError(null);
+      setSaveSuccess(false);
+    }
+  }, [fileContent]);
+
+  const handleSave = async () => {
+    if (!selectedFile) return;
+    
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    
+    try {
+      const params = new URLSearchParams({
+        path: selectedFile
+      });
+      if (projectId) {
+        params.append('project_id', projectId);
+      }
+      
+      const res = await axios.post(`/api/files/save?${params.toString()}`, {
+        content: editedContent
+      });
+      
+      setSaveSuccess(true);
+      setIsEditing(false);
+      // Refresh file content to show saved version
+      setTimeout(() => {
+        onFileSelect(selectedFile);
+        setSaveSuccess(false);
+      }, 1500);
+    } catch (err) {
+      setSaveError(err.response?.data?.error || err.message || 'Failed to save file');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setEditedContent(fileContent?.content || '');
+    setSaveError(null);
+    setSaveSuccess(false);
   };
 
   const renderFileTree = (items, level = 0, parentPath = '/app') => {
@@ -572,10 +627,50 @@ const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fi
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-bold text-gray-800">File Content</h2>
-          {selectedFile && (
-            <span className="text-xs text-gray-500 font-mono">{selectedFile}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {selectedFile && (
+              <span className="text-xs text-gray-500 font-mono">{selectedFile}</span>
+            )}
+            {fileContent && !isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded shadow transition"
+              >
+                Edit
+              </button>
+            )}
+            {isEditing && (
+              <>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-3 py-1 rounded shadow transition"
+                >
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={saving}
+                  className="text-sm bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white px-3 py-1 rounded shadow transition"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
         </div>
+        
+        {saveSuccess && (
+          <div className="mb-2 p-2 bg-green-100 text-green-700 text-sm rounded">
+            ✓ File saved successfully!
+          </div>
+        )}
+        
+        {saveError && (
+          <div className="mb-2 p-2 bg-red-100 text-red-700 text-sm rounded">
+            ✗ Error: {saveError}
+          </div>
+        )}
         
         {fileLoading && selectedFile ? (
           <div className="text-gray-500 text-sm py-4">Loading file content...</div>
@@ -583,12 +678,23 @@ const FileBrowser = ({ fileStructure, fileContent, selectedFile, fileLoading, fi
           <div className="text-red-500 text-sm py-4">{fileError}</div>
         ) : fileContent ? (
           <div className="max-h-[600px] overflow-auto">
-            <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap break-words">
-              {fileContent.content}
-            </pre>
-            <div className="mt-2 text-xs text-gray-500">
-              Size: {fileContent.size} characters
-            </div>
+            {isEditing ? (
+              <textarea
+                value={editedContent}
+                onChange={(e) => setEditedContent(e.target.value)}
+                className="w-full h-[600px] text-xs font-mono bg-gray-50 p-4 rounded border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                spellCheck={false}
+              />
+            ) : (
+              <>
+                <pre className="text-xs bg-gray-50 p-4 rounded border border-gray-200 whitespace-pre-wrap break-words">
+                  {fileContent.content}
+                </pre>
+                <div className="mt-2 text-xs text-gray-500">
+                  Size: {fileContent.size} characters
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="text-gray-500 text-sm py-4">Select a file to view its content</div>

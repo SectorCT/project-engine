@@ -321,6 +321,79 @@ app.get('/api/files/content', async (req, res) => {
     }
 });
 
+// Save file content to Docker container
+app.post('/api/files/save', async (req, res) => {
+    try {
+        const filePath = req.query.path;
+        if (!filePath) {
+            return res.status(400).json({ error: 'File path is required' });
+        }
+        
+        const content = req.body.content;
+        if (content === undefined) {
+            return res.status(400).json({ error: 'File content is required' });
+        }
+        
+        const projectId = req.query.project_id || null;
+        const containerName = getContainerName(projectId);
+        const container = docker.getContainer(containerName);
+        
+        // Check if container exists and is running
+        try {
+            const containerInfo = await container.inspect();
+            if (containerInfo.State.Status !== 'running') {
+                return res.status(503).json({ error: 'Container is not running', status: containerInfo.State.Status });
+            }
+        } catch (err) {
+            return res.status(404).json({ error: 'Container not found', details: err.message });
+        }
+        
+        // Write file using base64 encoding to handle special characters
+        // We'll use Python to write the file reliably
+        // Escape single quotes in file path for shell safety
+        const escapedPath = filePath.replace(/'/g, "'\"'\"'");
+        const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
+        const pythonCmd = `python3 -c "import base64; open('${escapedPath}', 'wb').write(base64.b64decode('${contentBase64}'))"`;
+        
+        const exec = await container.exec({
+            Cmd: ['sh', '-c', pythonCmd],
+            AttachStdout: true,
+            AttachStderr: true,
+            WorkingDir: '/app'
+        });
+        
+        const stream = await exec.start({ hijack: true, stdin: false });
+        
+        let output = '';
+        let errorOutput = '';
+        
+        // Docker streams combine stdout and stderr
+        stream.on('data', (chunk) => {
+            const data = chunk.toString();
+            output += data;
+        });
+        
+        await new Promise((resolve, reject) => {
+            stream.on('end', resolve);
+            stream.on('error', reject);
+        });
+        
+        // Check exit code
+        const execInfo = await exec.inspect();
+        if (execInfo.ExitCode !== 0) {
+            return res.status(500).json({ 
+                error: 'Failed to save file', 
+                details: output || 'Unknown error' 
+            });
+        }
+        
+        res.json({ success: true, message: 'File saved successfully' });
+    } catch (err) {
+        console.error('Error saving file:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // File watching functions
 
 /**
