@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Search, Filter, Code, Calendar, ExternalLink, Trash2 } from "lucide-react";
+import { Plus, Search, Filter, Code, Calendar, ExternalLink } from "lucide-react";
 import { api, App } from "@/lib/api";
 import { mapServerStatusToClient, calculateProgress, formatTimeAgo, extractTechStack, ClientJobStatus } from "@/lib/jobUtils";
 import { toast } from "sonner";
@@ -68,32 +68,6 @@ export default function Dashboard() {
     }
   };
 
-  const purgeJobsMutation = useMutation({
-    mutationFn: () => api.purgeJobs(),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      toast.success(`Deleted ${data.deleted} job(s) successfully`);
-    },
-    onError: (error: any) => {
-      toast.error(error?.detail || "Failed to purge jobs");
-    },
-  });
-
-  const handlePurgeJobs = async () => {
-    const confirmed = window.confirm(
-      "⚠️ WARNING: This will delete ALL your jobs. This action cannot be undone!\n\nAre you absolutely sure?"
-    );
-    if (confirmed) {
-      const doubleConfirm = window.confirm("This is your last chance. Delete ALL jobs?");
-      if (doubleConfirm) {
-        await purgeJobsMutation.mutateAsync();
-      }
-    }
-  };
-
-  // Check if in dev mode (for purge button visibility)
-  const isDevMode = import.meta.env.DEV || import.meta.env.VITE_DEV_MODE === 'true';
-
   if (error) {
     toast.error("Failed to load jobs");
   }
@@ -131,18 +105,6 @@ export default function Dashboard() {
               Build, manage, and deploy AI-powered applications
             </p>
           </div>
-              {isDevMode && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handlePurgeJobs}
-                  disabled={purgeJobsMutation.isPending}
-                  className="gap-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  {purgeJobsMutation.isPending ? 'Purging...' : 'Purge All Jobs'}
-                </Button>
-              )}
             </div>
           </div>
 
