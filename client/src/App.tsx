@@ -10,6 +10,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import CreateProject from "./pages/CreateProject";
 import LiveBuild from "./pages/LiveBuild";
+import AppDetail from "./pages/AppDetail";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import Index from "./pages/Index";
@@ -49,6 +50,22 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <LiveBuild />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/build/:id"
+                element={
+                  <ProtectedRoute>
+                    <LiveBuild />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/apps/:appId"
+                element={
+                  <ProtectedRoute>
+                    <AppDetail />
                   </ProtectedRoute>
                 }
               />

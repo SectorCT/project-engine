@@ -5,7 +5,7 @@ const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
 const ALLOW_WS_TOKEN_QUERY = import.meta.env.VITE_ALLOW_WS_TOKEN_QUERY !== 'false';
 
 export interface WebSocketMessage {
-  kind: 'chat' | 'status' | 'step' | 'app' | 'error';
+  kind: 'jobStatus' | 'agentDialogue' | 'stageUpdate' | 'prdReady' | 'error';
   jobId?: string;
   role?: 'user' | 'agent' | 'system';
   sender?: string;
@@ -16,6 +16,7 @@ export interface WebSocketMessage {
   agent?: string;
   order?: number;
   spec?: Record<string, any>;
+  prdMarkdown?: string;
   timestamp?: string;
 }
 

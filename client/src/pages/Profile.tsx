@@ -161,9 +161,10 @@ export default function Profile() {
                       Sign out of your account. You will need to log in again to access your projects.
                     </p>
                     <div className="flex gap-3">
-                      <Button variant="destructive" onClick={() => {
-                        logout();
+                      <Button variant="destructive" onClick={async () => {
+                        await logout();
                         toast.success("Logged out successfully");
+                        navigate("/login");
                       }}>
                         <LogOut className="w-4 h-4 mr-2" />
                         Logout
