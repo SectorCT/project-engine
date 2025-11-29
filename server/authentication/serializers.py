@@ -12,7 +12,8 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password2 = serializers.CharField(write_only=True, label="Confirm Password")
+    password2 = serializers.CharField(write_only=True, label="Confirm Password", required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = User
@@ -22,15 +23,36 @@ class RegisterSerializer(serializers.ModelSerializer):
         }
 
     def validate(self, data):
-        if data.get('password') != data.get('password2'):
-            raise serializers.ValidationError("Passwords do not match.")
-
         password = data.get('password') or ''
+        password2 = data.get('password2')
+        
+        # If password2 is provided, validate it matches
+        if password2 and password != password2:
+            raise serializers.ValidationError("Passwords do not match.")
+        
         if len(password) < 8:
             raise serializers.ValidationError("Password must be at least 8 characters long.")
 
         email = data.get('email')
         username = data.get('username')
+        
+        # Auto-generate username from email if not provided
+        if not username:
+            # Extract username part from email (before @)
+            username = email.split('@')[0]
+            # Remove any special characters and make it unique if needed
+            username = ''.join(c for c in username if c.isalnum() or c in ['_', '-'])
+            # Ensure it's not empty
+            if not username:
+                username = 'user'
+            # Make it unique by appending numbers if needed
+            base_username = username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
+            data['username'] = username
+        
         if User.objects.filter(email=email).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         if User.objects.filter(username=username).exists():
@@ -38,7 +60,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        validated_data.pop('password2')
+        validated_data.pop('password2', None)
         user = User.objects.create_user(
             email=validated_data['email'],
             username=validated_data['username'],
