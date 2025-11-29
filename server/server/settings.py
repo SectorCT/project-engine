@@ -204,3 +204,6 @@ DOCKER_SOCKET_PATH = os.getenv('DOCKER_SOCKET_PATH', '')
 
 ALLOW_WS_TOKEN_QUERY = os.getenv('ALLOW_WS_TOKEN_QUERY', str(DEBUG)).lower() == 'true'
 ALLOW_JOB_PURGE = os.getenv('ALLOW_JOB_PURGE', str(DEBUG)).lower() == 'true'
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')

@@ -16,3 +16,4 @@ requests
 python-dotenv
 pydantic
 docker
+google-auth

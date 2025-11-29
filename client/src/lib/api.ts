@@ -229,6 +229,13 @@ class ApiClient {
     this.clearTokens();
   }
 
+  async googleLogin(credential: string): Promise<AuthResponse> {
+    return this.request<AuthResponse>('/api/auth/google/', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+  }
+
   // Jobs
   async getJobs(): Promise<Job[]> {
     return this.request<Job[]>('/api/jobs/');
