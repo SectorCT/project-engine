@@ -29,7 +29,8 @@ Jobs emit updates to the WebSocket group `job_<job_id>` and persist the same inf
 - `GET /api/apps/` – list app artifacts owned by the caller.
 - `GET /api/apps/<id>/` – retrieve an app by ID.
 - `GET /api/apps/by-job/<job_id>/` – fetch the app that belongs to a specific job.
-- WebSocket: `ws://<host>/ws/jobs/<job_id>/` (include `Authorization: Bearer <JWT>` in headers; when `ALLOW_WS_TOKEN_QUERY` or `DEBUG` is true you can alternatively use `?token=<JWT>` for quick dev testing).
+- `GET /api/job-messages/?job_id=<job_id>` – fetch chat + description history for a specific job (oldest → newest).
+- WebSocket: `ws://<host>/ws/jobs/<job_id>/` (include `Authorization: Bearer <JWT>`; in dev you may also append `?token=<JWT>` when `ALLOW_WS_TOKEN_QUERY` is enabled for quick testing).
 
 All endpoints require authentication (JWT) except those under `/api/auth/`.
 
@@ -86,7 +87,7 @@ The compose file automatically runs migrations on start. Copy `.envtemplate` to 
    ```json
    {"kind": "chat", "content": "Here are more details about the target users."}
    ```
-4. Observe `chat`, `status`, `step`, and `app` payloads as the job progresses from requirements collection to executive build.
+4. Observe `chat`, `description`, `status`, `step`, and `app` payloads as the job progresses from requirements gathering through build-out.
 
 ## Next Steps
 

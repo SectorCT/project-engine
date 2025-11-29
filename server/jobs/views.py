@@ -17,7 +17,7 @@ from .serializers import (
     JobSerializer,
     JobUpdateSerializer,
 )
-from .services import finalize_requirements, initialize_requirements_collection, record_chat_message
+from .services import finalize_requirements, initialize_requirements_collection, record_chat_message, record_description
 from .tasks import run_job_task
 
 
@@ -126,11 +126,20 @@ class JobMessageViewSet(
 
     def perform_create(self, serializer):
         job = serializer.context['job']
+        metadata = serializer.validated_data.get('metadata')
+        if metadata and metadata.get('type') == 'description':
+            record_description(
+                job,
+                agent=serializer.validated_data.get('sender') or 'system',
+                stage=metadata.get('stage', ''),
+                message=serializer.validated_data['content'],
+            )
+            return
         record_chat_message(
             job,
             role=serializer.validated_data['role'],
             sender=serializer.validated_data.get('sender', ''),
             content=serializer.validated_data['content'],
-            metadata=serializer.validated_data.get('metadata'),
+            metadata=metadata,
         )
 

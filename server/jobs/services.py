@@ -134,6 +134,12 @@ def initialize_requirements_collection(job: Job) -> Dict[str, Any]:
     response = start_requirements_session(job.initial_prompt, state=_get_requirements_state(job))
     _store_requirements_state(job, response['state'])
     agent_message = response['message']
+    record_description(
+        job,
+        agent=response['agent_name'],
+        stage='Collecting Requirements',
+        message='Client Relations is clarifying the idea.',
+    )
     record_chat_message(
         job,
         role=JobMessage.Role.AGENT,
@@ -155,6 +161,12 @@ def handle_requirements_chat(job: Job, user_message: str) -> Dict[str, Any]:
     state = _get_requirements_state(job)
     response = handle_requirements_message(user_message, state)
     _store_requirements_state(job, response['state'])
+    record_description(
+        job,
+        agent=response['agent_name'],
+        stage='Collecting Requirements',
+        message='Client Relations is processing the latest answer.',
+    )
     record_chat_message(
         job,
         role=JobMessage.Role.AGENT,
@@ -187,6 +199,12 @@ def finalize_requirements(job: Job, summary: str) -> Job:
     job.status = Job.Status.QUEUED
     job.save(update_fields=['prompt', 'requirements_summary', 'conversation_state', 'status', 'updated_at'])
     set_job_status(str(job.id), Job.Status.QUEUED, 'Requirements finalized')
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Queued',
+        message='Handing project to executive agents.',
+    )
     return job
 
 
@@ -194,6 +212,12 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
     """Execute the remaining agentLoop phases once requirements are known."""
     history = run_executive_flow(job.prompt)
     for idx, entry in enumerate(history, start=1):
+        record_description(
+            job,
+            agent=entry['agent'],
+            stage='Executive Planning',
+            message=f'{entry["agent"]} is responding.',
+        )
         callbacks.on_step(agent_name=entry['agent'], message=entry['content'], order=idx)
 
     summary_content = _extract_summary(history)
@@ -257,6 +281,17 @@ def record_chat_message(
     return message
 
 
+def record_description(job: Job, *, agent: str, stage: str, message: str) -> JobMessage:
+    metadata = {'type': 'description', 'stage': stage, 'agent': agent}
+    return record_chat_message(
+        job,
+        role=JobMessage.Role.SYSTEM,
+        sender=agent,
+        content=message,
+        metadata=metadata,
+    )
+
+
 @dataclass
 class JobCallbacks:
     """Adapter passed to the orchestrator to mutate state safely."""
@@ -288,4 +323,8 @@ class JobCallbacks:
             content=content,
             metadata=metadata,
         )
+
+    def on_description(self, *, agent: str, stage: str, message: str) -> None:
+        job = Job.objects.get(id=self.job_id)
+        record_description(job, agent=agent, stage=stage, message=message)
 
