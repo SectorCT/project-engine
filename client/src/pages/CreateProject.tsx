@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ArrowRight, Sparkles, Lightbulb } from "lucide-react";
+import { ArrowLeft, ArrowRight, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -165,9 +165,11 @@ export default function CreateProject() {
           {/* Header */}
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-primary flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <img 
+                src="/logo.png" 
+                alt="Project Engine" 
+                className="h-8 w-auto"
+              />
               <div>
                 <h1 className="text-xl font-semibold">Create New Project</h1>
                 <p className="text-xs text-muted-foreground">
@@ -188,16 +190,27 @@ export default function CreateProject() {
                   <div className="flex flex-col items-center flex-1">
                     <div
                       className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center font-semibold transition-all text-white",
+                        "w-12 h-12 rounded-full flex items-center justify-center font-semibold transition-all relative",
                         currentStep >= step.id
-                          ? "bg-gradient-primary shadow-lg"
-                          : "bg-muted text-muted-foreground"
+                          ? "bg-gradient-primary text-primary-foreground shadow-lg ring-2 ring-foreground/10"
+                          : "bg-muted text-muted-foreground border-2 border-border"
                       )}
                     >
-                      {currentStep > step.id ? "✓" : step.id}
+                      {currentStep > step.id ? (
+                        <span className="text-lg">✓</span>
+                      ) : (
+                        <span className={cn(
+                          currentStep >= step.id ? "text-primary-foreground" : ""
+                        )}>
+                          {step.id}
+                        </span>
+                      )}
                     </div>
                     <div className="mt-3 text-center">
-                      <p className="text-sm font-medium text-foreground">
+                      <p className={cn(
+                        "text-sm font-medium transition-colors",
+                        currentStep >= step.id ? "text-foreground" : "text-muted-foreground"
+                      )}>
                         {step.name}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -206,23 +219,28 @@ export default function CreateProject() {
                     </div>
                   </div>
                   {index < steps.length - 1 && (
-                    <div
-                      className={cn(
-                        "h-1 flex-1 mx-4 transition-colors",
-                        currentStep > step.id ? "bg-gradient-primary" : "bg-muted"
-                      )}
-                    />
+                    <div className="flex-1 mx-4 relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="h-0.5 w-full bg-muted"></div>
+                      </div>
+                      <div
+                        className={cn(
+                          "h-0.5 transition-all duration-500 ease-out",
+                          currentStep > step.id ? "bg-gradient-primary w-full" : "w-0"
+                        )}
+                      />
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           </div>
 
-        <Card className="glass flex-1 flex flex-col min-h-0">
-          <CardHeader className="flex-shrink-0 pb-3">
-            <CardTitle className="text-lg">Step {currentStep}: {steps[currentStep - 1].name}</CardTitle>
+        <Card className="glass glow-card flex-1 flex flex-col min-h-0 border-border/50">
+          <CardHeader className="flex-shrink-0 pb-4 border-b border-border/50">
+            <CardTitle className="text-xl font-semibold">Step {currentStep}: {steps[currentStep - 1].name}</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1 overflow-auto p-4">
+          <CardContent className="flex-1 overflow-auto p-6">
             <AnimatePresence mode="wait">
               {/* Step 1: Project Idea */}
               {currentStep === 1 && (
@@ -233,9 +251,9 @@ export default function CreateProject() {
                   exit={{ opacity: 0, x: -20 }}
                   className="space-y-4"
                 >
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-bold">What do you want to build?</h2>
-                    <p className="text-sm text-muted-foreground">
+                  <div className="space-y-3 mb-6">
+                    <h2 className="text-3xl font-bold tracking-tight">What do you want to build?</h2>
+                    <p className="text-base text-muted-foreground leading-relaxed">
                       Describe your project idea in detail. The more specific you are, the better our AI agents can help.
                     </p>
                   </div>
@@ -249,19 +267,19 @@ export default function CreateProject() {
                       }
                       rows={8}
                       minLength={20}
-                      className="text-sm resize-none"
+                      className="text-sm resize-none bg-input/50 border-border/50 focus:border-border focus:ring-2 focus:ring-ring/20 transition-all"
                     />
                   </div>
-                  <div className="space-y-2 pt-3 border-t border-border">
+                  <div className="space-y-3 pt-6 border-t border-border/50">
                     <div className="flex items-center gap-2">
-                      <Lightbulb className="w-4 h-4 text-warning" />
+                      <Lightbulb className="w-5 h-5 text-warning" />
                       <Label className="text-sm font-semibold">Example Prompts</Label>
                     </div>
-                    <ul className="space-y-1.5 list-disc list-inside text-sm text-muted-foreground">
+                    <ul className="space-y-2.5">
                       {examplePrompts.map((prompt, index) => (
                         <li
                           key={index}
-                          className="cursor-pointer hover:text-foreground transition-colors"
+                          className="cursor-pointer p-3 rounded-lg bg-muted/30 border border-border/30 hover:bg-muted/50 hover:border-border/50 transition-all text-sm text-muted-foreground hover:text-foreground"
                           onClick={() =>
                             updateFormData({ description: prompt })
                           }
@@ -283,38 +301,39 @@ export default function CreateProject() {
                   exit={{ opacity: 0, x: -20 }}
                   className="space-y-4"
                 >
-                  <div className="space-y-2">
-                    <Label className="text-sm">Platform</Label>
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Platform</Label>
                     <RadioGroup
                       value={formData.platform}
                       onValueChange={(value: "web" | "mobile" | "desktop") =>
                         updateFormData({ platform: value })
                       }
+                      className="space-y-2"
                     >
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
                         <RadioGroupItem value="web" id="web" />
-                        <Label htmlFor="web" className="cursor-pointer">
+                        <Label htmlFor="web" className="cursor-pointer font-normal">
                           Web App
                         </Label>
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
                         <RadioGroupItem value="mobile" id="mobile" />
-                        <Label htmlFor="mobile" className="cursor-pointer">
+                        <Label htmlFor="mobile" className="cursor-pointer font-normal">
                           Mobile App
                         </Label>
                       </div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
                         <RadioGroupItem value="desktop" id="desktop" />
-                        <Label htmlFor="desktop" className="cursor-pointer">
+                        <Label htmlFor="desktop" className="cursor-pointer font-normal">
                           Desktop App
                         </Label>
                       </div>
                     </RadioGroup>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-sm">Tech Stack</Label>
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Tech Stack</Label>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label className="text-sm">Frontend</Label>
                         <div className="flex flex-wrap gap-2 mt-2">
@@ -327,7 +346,7 @@ export default function CreateProject() {
                                     ? "default"
                                     : "outline"
                                 }
-                                className="cursor-pointer"
+                                className="cursor-pointer transition-all font-normal border-border/50"
                                 onClick={() =>
                                   toggleTechStack("frontend", tech)
                                 }
@@ -398,15 +417,15 @@ export default function CreateProject() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Complexity</Label>
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Complexity</Label>
                     <Select
                       value={formData.complexity}
                       onValueChange={(value: "simple" | "medium" | "complex") =>
                         updateFormData({ complexity: value })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="bg-input/50 border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -423,9 +442,9 @@ export default function CreateProject() {
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-sm">Features</Label>
-                    <div className="space-y-1.5">
+                  <div className="space-y-3">
+                    <Label className="text-sm font-semibold">Features</Label>
+                    <div className="space-y-2">
                       {[
                         "Authentication",
                         "Payment Processing",
@@ -434,7 +453,7 @@ export default function CreateProject() {
                         "Email Notifications",
                         "Admin Dashboard",
                       ].map((feature) => (
-                        <div key={feature} className="flex items-center space-x-2">
+                        <div key={feature} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
                           <Checkbox
                             id={feature}
                             checked={formData.features.includes(feature)}
@@ -442,7 +461,7 @@ export default function CreateProject() {
                           />
                           <Label
                             htmlFor={feature}
-                            className="cursor-pointer font-normal"
+                            className="cursor-pointer font-normal flex-1"
                           >
                             {feature}
                           </Label>
@@ -462,10 +481,10 @@ export default function CreateProject() {
                   exit={{ opacity: 0, x: -20 }}
                   className="space-y-4"
                 >
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div>
-                      <h3 className="text-sm font-semibold mb-2">Project Summary</h3>
-                      <div className="bg-muted/30 p-3 rounded-lg space-y-1.5 text-xs">
+                      <h3 className="text-sm font-semibold mb-3">Project Summary</h3>
+                      <div className="bg-muted/30 border border-border/30 p-4 rounded-lg space-y-2 text-sm">
                         <p>
                           <span className="font-medium">Name:</span>{" "}
                           {formData.name}
@@ -481,8 +500,8 @@ export default function CreateProject() {
                       </div>
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold mb-2">Agents</h3>
-                      <div className="space-y-1.5">
+                      <h3 className="text-sm font-semibold mb-3">Agents</h3>
+                      <div className="space-y-2">
                         {[
                           "Business Analyst",
                           "Project Manager",
@@ -492,12 +511,12 @@ export default function CreateProject() {
                         ].map((role) => (
                           <div
                             key={role}
-                            className="flex items-center gap-2 p-1.5 bg-muted/30 rounded"
+                            className="flex items-center gap-3 p-3 bg-muted/30 border border-border/30 rounded-lg"
                           >
-                            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold">
+                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
                               {role.charAt(0)}
                             </div>
-                            <span className="text-xs">{role}</span>
+                            <span className="text-sm">{role}</span>
                           </div>
                         ))}
                       </div>
@@ -517,7 +536,11 @@ export default function CreateProject() {
                 >
                   <div className="text-center space-y-3">
                     <div className="flex justify-center">
-                      <Sparkles className="w-12 h-12 text-primary" />
+                      <img 
+                        src="/logo.png" 
+                        alt="Project Engine" 
+                        className="h-12 w-auto"
+                      />
                     </div>
                     <h3 className="text-xl font-semibold">
                       Ready to Start Building?
@@ -527,9 +550,9 @@ export default function CreateProject() {
                       working immediately.
                     </p>
                   </div>
-                  <div className="bg-muted/30 p-3 rounded-lg space-y-1.5 text-xs">
+                  <div className="bg-muted/30 border border-border/30 p-4 rounded-lg space-y-2 text-sm">
                     <p>
-                      <span className="font-medium">Estimated Time:</span>{" "}
+                      <span className="font-semibold">Estimated Time:</span>{" "}
                       {formData.complexity === "simple"
                         ? "1-2 weeks"
                         : formData.complexity === "medium"
@@ -537,7 +560,7 @@ export default function CreateProject() {
                         : "4+ weeks"}
                     </p>
                     <p>
-                      <span className="font-medium">Estimated Cost:</span> $50-200
+                      <span className="font-semibold">Estimated Cost:</span> $50-200
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -551,7 +574,7 @@ export default function CreateProject() {
             </AnimatePresence>
 
             {/* Navigation */}
-            <div className="flex justify-between mt-4 pt-4 border-t border-border flex-shrink-0">
+            <div className="flex justify-between mt-6 pt-6 border-t border-border/50 flex-shrink-0">
               <Button
                 variant="ghost"
                 size="sm"
@@ -566,19 +589,23 @@ export default function CreateProject() {
                   onClick={handleNext} 
                   disabled={!canProceed()}
                   size="sm"
-                  className="bg-gradient-primary hover:opacity-90 text-white"
+                  className="bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
-                <Button 
+                  <Button 
                   onClick={handleLaunch} 
                   size="default"
-                  className="bg-gradient-primary hover:opacity-90 text-white"
+                  className="bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed px-6"
                   disabled={isSubmitting}
                 >
-                  <Sparkles className="w-4 h-4 mr-2" />
+                  <img 
+                    src="/logo.png" 
+                    alt="" 
+                    className="w-4 h-4 mr-2"
+                  />
                   {isSubmitting ? "Creating..." : "Start Building"}
                 </Button>
               )}
