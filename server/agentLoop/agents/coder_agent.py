@@ -2,6 +2,7 @@ from agents.base_agent import BaseAgent
 from systems.docker_env import DockerEnv
 import time
 import re
+import base64
 
 class CoderAgent(BaseAgent):
     def __init__(self):
@@ -27,26 +28,103 @@ You are pragmatic, clean, and efficient.
         text = (ticket_title + " " + description).lower()
         return any(keyword in text for keyword in design_keywords)
 
-    def _build_enhanced_prompt(self, ticket: dict, parent_context: str = None) -> str:
-        """Build an enhanced prompt that handles design decisions."""
+    def _build_enhanced_prompt(self, ticket: dict, parent_context: str = None, 
+                               project_structure: dict = None, all_tickets: list = None,
+                               dependencies: list = None, completed_tickets: list = None) -> str:
+        """Build an enhanced prompt with full project context."""
         task_description = ticket.get('description', '')
         ticket_title = ticket.get('title', '')
+        ticket_id = ticket.get('_id') or ticket.get('id', '')
         
         # Check if this needs a design decision
         needs_design = self._needs_design_decision(ticket_title, task_description)
         
         prompt_parts = [
-            f"Task: {ticket_title}",
-            f"Description: {task_description}"
+            "=" * 80,
+            "PROJECT CONTEXT AND TASK",
+            "=" * 80,
+            f"\nTask: {ticket_title}",
+            f"Task ID: {ticket_id}",
+            f"Description:\n{task_description}"
         ]
         
+        # Add project structure context
+        if project_structure:
+            prompt_parts.append("\n" + "=" * 80)
+            prompt_parts.append("PROJECT STRUCTURE")
+            prompt_parts.append("=" * 80)
+            tech_stack = project_structure.get('tech_stack', {})
+            if tech_stack.get('frontend'):
+                prompt_parts.append(f"Frontend: {tech_stack['frontend']}")
+            if tech_stack.get('backend'):
+                prompt_parts.append(f"Backend: {tech_stack['backend']}")
+            
+            prompt_parts.append("\nExisting Folders:")
+            for folder in project_structure.get('folders', []):
+                prompt_parts.append(f"  - {folder}")
+            
+            prompt_parts.append("\nExisting Files (from initialization):")
+            for file in project_structure.get('known_files', []):
+                prompt_parts.append(f"  - {file}")
+            
+            # Add current files in container
+            if project_structure.get('current_files'):
+                prompt_parts.append("\nCurrent Files in Container:")
+                prompt_parts.append(project_structure.get('current_files'))
+        
+        # Add parent epic context
         if parent_context:
-            prompt_parts.append(f"\nContext from Parent Epic:\n{parent_context}")
+            prompt_parts.append("\n" + "=" * 80)
+            prompt_parts.append("PARENT EPIC CONTEXT")
+            prompt_parts.append("=" * 80)
+            prompt_parts.append(parent_context)
+        
+        # Add dependencies context
+        if dependencies:
+            prompt_parts.append("\n" + "=" * 80)
+            prompt_parts.append("DEPENDENCIES (Must be completed before this task)")
+            prompt_parts.append("=" * 80)
+            for dep in dependencies:
+                dep_title = dep.get('title', 'Unknown')
+                dep_desc = dep.get('description', '')[:200]
+                dep_status = dep.get('status', 'unknown')
+                prompt_parts.append(f"\n- {dep_title} (Status: {dep_status})")
+                if dep_desc:
+                    prompt_parts.append(f"  {dep_desc}")
+        
+        # Add related tickets (siblings in same epic)
+        if all_tickets:
+            parent_id = ticket.get('parent_id')
+            if parent_id:
+                siblings = [
+                    t for t in all_tickets 
+                    if t.get('parent_id') == parent_id 
+                    and str(t.get('_id') or t.get('id')) != str(ticket_id)
+                    and t.get('type') == 'story'
+                ]
+                if siblings:
+                    prompt_parts.append("\n" + "=" * 80)
+                    prompt_parts.append("RELATED TASKS (Same Epic)")
+                    prompt_parts.append("=" * 80)
+                    for sibling in siblings:
+                        sib_status = sibling.get('status', 'unknown')
+                        prompt_parts.append(f"- {sibling.get('title', 'Unknown')} (Status: {sib_status})")
+        
+        # Add completed tickets context (for reference)
+        if completed_tickets:
+            prompt_parts.append("\n" + "=" * 80)
+            prompt_parts.append("COMPLETED TASKS (For Reference)")
+            prompt_parts.append("=" * 80)
+            for completed in completed_tickets[:5]:  # Limit to 5 most recent
+                prompt_parts.append(f"- {completed.get('title', 'Unknown')}")
         
         # Add specific instructions for design decisions
         if needs_design:
+            prompt_parts.append("\n" + "=" * 80)
+            prompt_parts.append("DESIGN DECISION REQUIRED")
+            prompt_parts.append("=" * 80)
             prompt_parts.append(
-                "\nIMPORTANT: This task requires making design decisions. "
+                "IMPORTANT: This task requires making design decisions. "
                 "Before implementing code, create a markdown file (e.g., DESIGN_DECISIONS.md or similar) "
                 "that documents your choices. For example:\n"
                 "- If choosing colors: list the hex codes and their usage\n"
@@ -55,24 +133,52 @@ You are pragmatic, clean, and efficient.
                 "Then implement the code based on these documented decisions."
             )
         
+        # Add implementation instructions
+        prompt_parts.append("\n" + "=" * 80)
+        prompt_parts.append("IMPLEMENTATION INSTRUCTIONS")
+        prompt_parts.append("=" * 80)
         prompt_parts.append(
-            "\nInstructions:\n"
-            "1. If this task requires design decisions (colors, fonts, layouts, etc.), "
-            "first create a markdown file documenting your choices.\n"
-            "2. Implement the necessary code changes.\n"
-            "3. If there are tests, run them to verify.\n"
-            "4. If there are no tests, create basic tests if possible.\n"
-            "5. Ensure code quality and follow best practices."
+            "1. Review the project structure and existing files above.\n"
+            "2. Check dependencies - ensure prerequisite tasks are completed.\n"
+            "3. If this task requires design decisions, first create a markdown file documenting your choices.\n"
+            "4. Implement the necessary code changes following the task description.\n"
+            "5. Use the existing project structure - don't create unnecessary files.\n"
+            "6. Follow the tech stack conventions (TypeScript, React patterns, etc.).\n"
+            "7. If there are tests, run them to verify.\n"
+            "8. If there are no tests, create basic tests if possible.\n"
+            "9. Ensure code quality and follow best practices.\n"
+            "10. Make sure your implementation integrates well with related tasks."
         )
+        
+        prompt_parts.append("\n" + "=" * 80)
         
         return "\n".join(prompt_parts)
 
-    def resolve_ticket(self, ticket: dict, docker_env: DockerEnv, parent_context: str = None) -> bool:
+    def _get_current_file_structure(self, docker_env: DockerEnv) -> str:
+        """Get the current file structure from the Docker container."""
+        try:
+            # Get a tree-like structure of files
+            cmd = 'bash -c "find /app -type f -not -path \'*/node_modules/*\' -not -path \'*/.git/*\' | head -50 | sort"'
+            exit_code, output = docker_env.exec_run(cmd, workdir="/app")
+            if exit_code == 0 and output:
+                files = output.strip().split('\n')
+                return "\n".join([f"  - {f}" for f in files if f])
+        except:
+            pass
+        return "  (Unable to retrieve file structure)"
+
+    def resolve_ticket(self, ticket: dict, docker_env: DockerEnv, parent_context: str = None,
+                      project_structure: dict = None, all_tickets: list = None) -> bool:
         """
         Attempt to resolve a ticket by generating code via Cursor CLI in Docker.
         Returns True if successful, False otherwise.
         """
         print(f"\n[{self.name}] Picking up ticket: {ticket.get('title')} (ID: {ticket.get('id')})")
+        
+        # Get current file structure from container
+        current_files = self._get_current_file_structure(docker_env)
+        if project_structure:
+            project_structure['current_files'] = current_files
         
         # 1. Verify cursor-agent is available
         print(f"[{self.name}] Checking if cursor-agent is available...")
@@ -142,8 +248,33 @@ You are pragmatic, clean, and efficient.
         if 'CURSOR_AGENT_TEST_FAILED' in test_output:
             print(f"[{self.name}] WARNING: cursor-agent test command failed!")
         
-        # 3. Build enhanced prompt
-        cursor_prompt = self._build_enhanced_prompt(ticket, parent_context)
+        # 3. Build enhanced prompt with full context
+        # Get dependencies for this ticket
+        dependencies = []
+        ticket_dep_ids = ticket.get('dependencies', [])
+        if ticket_dep_ids and all_tickets:
+            for dep_id in ticket_dep_ids:
+                dep_ticket = next(
+                    (t for t in all_tickets 
+                     if str(t.get('_id') or t.get('id')) == str(dep_id)),
+                    None
+                )
+                if dep_ticket:
+                    dependencies.append(dep_ticket)
+        
+        # Get completed tickets for reference
+        completed_tickets = []
+        if all_tickets:
+            completed_tickets = [t for t in all_tickets if t.get('status') == 'done']
+        
+        cursor_prompt = self._build_enhanced_prompt(
+            ticket, 
+            parent_context,
+            project_structure=project_structure,
+            all_tickets=all_tickets,
+            dependencies=dependencies,
+            completed_tickets=completed_tickets
+        )
         
         # 4. Execute Cursor CLI command
         # Using stdin to pass prompt (more reliable than command line args)
@@ -182,10 +313,13 @@ PROMPT_EOF"
         debug_output_file = f"{debug_folder}/cursor_debug_{ticket_id}_{safe_title}.txt"
         
         # Execute cursor-agent and capture output
-        cmd = f'bash -c "{cursor_cmd} -p --force < /tmp/cursor_prompt.txt 2>&1"'
+        # Run from /app directory so files are created in the project directory
+        # Include /app as context using @/app notation if supported, otherwise just cd to /app
+        cmd = f'bash -c "cd /app && {cursor_cmd} -p --force < /tmp/cursor_prompt.txt 2>&1"'
         
         print(f"[{self.name}] Executing Cursor CLI command...")
-        print(f"[{self.name}] Command: {cursor_cmd} -p --force < /tmp/cursor_prompt.txt")
+        print(f"[{self.name}] Command: cd /app && {cursor_cmd} -p --force < /tmp/cursor_prompt.txt")
+        print(f"[{self.name}] Working directory: /app (project directory)")
         print(f"[{self.name}] Debug output will be saved to: {debug_output_file}")
         print(f"[{self.name}] Prompt preview (first 200 chars): {cursor_prompt[:200]}...")
         
@@ -195,12 +329,28 @@ PROMPT_EOF"
         docker_env.exec_run(save_prompt_cmd, workdir="/app")
         print(f"[{self.name}] Prompt saved to: {prompt_debug_file}")
         
+        # Verify we're in the right directory before execution
+        verify_dir_cmd = 'bash -c "cd /app && pwd && ls -la | head -5"'
+        verify_exit, verify_output = docker_env.exec_run(verify_dir_cmd, workdir="/app")
+        print(f"[{self.name}] Directory verification:\n{verify_output[:200]}")
+        
+        # Add project directory context to the prompt
+        # Cursor-agent works in the current directory, so we'll run from /app
+        # We can also mention the directory in the prompt itself
+        enhanced_prompt = f"{cursor_prompt}\n\nIMPORTANT: All files should be created/modified in the /app directory. The current working directory is /app."
+        
+        # Update the prompt file with enhanced version
+        enhanced_prompt_b64 = base64.b64encode(enhanced_prompt.encode('utf-8')).decode('ascii')
+        update_prompt_cmd = f"python3 -c \"import base64; open('/tmp/cursor_prompt.txt', 'w').write(base64.b64decode('{enhanced_prompt_b64}').decode('utf-8'))\""
+        docker_env.exec_run(update_prompt_cmd, workdir="/app")
+        
         # Wait 10 seconds before execution to avoid rate limiting
         print(f"[{self.name}] Waiting 10 seconds before execution to avoid rate limiting...")
         time.sleep(10)
         print(f"[{self.name}] Starting execution now...")
         
         # Execute the command and capture output
+        # Run from /app directory so files are created in the project
         exit_code, output = docker_env.exec_run(cmd, workdir="/app")
         
         # Explicitly write the output to the debug file

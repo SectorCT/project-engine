@@ -16,14 +16,13 @@ class BaseAgent:
         self.messages = [{"role": "system", "content": self.system_prompt}]
 
     def load_state(self, messages: Optional[List[Dict[str, str]]] = None):
-        """Hydrate the agent with a previously stored conversation."""
-        if messages:
+        """Replace current message history with a previously saved sequence."""
+        if messages is not None:
             self.messages = messages
 
     def dump_state(self) -> List[Dict[str, str]]:
-        """Return the current conversation history for persistence."""
+        """Return a copy of the current message history for persistence."""
         return list(self.messages)
-
     def add_message(self, role: str, content: str):
         """Add a message to the agent's history."""
         self.messages.append({"role": role, "content": content})

@@ -1,29 +1,124 @@
-import uuid
-from typing import List, Dict, Optional
+from __future__ import annotations
 
-from django.apps import apps
-from django.utils import timezone
+import json
+import os
+import uuid
+from typing import Any, Dict, List, Optional
+
+try:  # Optional dependency so this module still works in CLI-only mode
+    from django.apps import apps
+    from django.core.exceptions import AppRegistryNotReady
+except ImportError:  # pragma: no cover - happens outside Django
+    apps = None
+    AppRegistryNotReady = Exception  # type: ignore
 
 
 class TicketSystem:
     """
-    Simplified ticket repository that always uses Django models.
-    agentLoop code passes job_id so every ticket is scoped to a projectEngine job in Postgres.
+    Persists tickets either via the Django ORM (preferred) or a local JSON file
+    when Django isn't available (standalone CLI/dev usage).
     """
 
-    def __init__(self, job_id: str, owner_id: Optional[str] = None):
-        if not job_id:
-            raise ValueError('TicketSystem requires a job_id')
+    def __init__(self, job_id: Optional[str] = None):
+        self.job_id = job_id
+        self._use_django = False
+        self._ticket_model = None
+        self._job = None
 
-        JobModel = apps.get_model('jobs', 'Job')
-        TicketModel = apps.get_model('jobs', 'Ticket')
+        if self.job_id and apps is not None:
+            try:
+                self._ticket_model = apps.get_model('jobs', 'Ticket')
+                job_model = apps.get_model('jobs', 'Job')
+                self._job = job_model.objects.get(id=self.job_id)
+                self._use_django = True
+            except (LookupError, AppRegistryNotReady, Exception):
+                # Fall back to local storage if Django apps aren't ready yet
+                self._use_django = False
 
-        self.job = JobModel.objects.get(id=job_id)
-        if owner_id and self.job.owner_id != owner_id:
-            raise PermissionError('Job does not belong to requesting owner')
+        if not self._use_django:
+            self.local_file = os.path.join('project_data', 'tickets.json')
+            self._ensure_local_file()
 
-        self.TicketModel = TicketModel
+    # --------------------------------------------------------------------- #
+    # Django-backed helpers
+    # --------------------------------------------------------------------- #
+    def _create_ticket_django(
+        self,
+        *,
+        type: str,
+        title: str,
+        description: str,
+        assigned_to: str,
+    ) -> str:
+        ticket = self._ticket_model.objects.create(
+            job=self._job,
+            type=type,
+            title=title,
+            description=description,
+            assigned_to=assigned_to,
+            status='todo',
+        )
+        return str(ticket.id)
 
+    def _update_dependencies_django(self, ticket_id: str, dependencies: List[str]) -> None:
+        ticket = self._ticket_model.objects.get(id=ticket_id, job=self._job)
+        dep_qs = self._ticket_model.objects.filter(id__in=dependencies, job=self._job)
+        ticket.dependencies.set(dep_qs)
+
+    def _update_parent_django(self, ticket_id: str, parent_id: str) -> None:
+        ticket = self._ticket_model.objects.get(id=ticket_id, job=self._job)
+        parent = None
+        if parent_id:
+            parent = self._ticket_model.objects.filter(id=parent_id, job=self._job).first()
+        ticket.parent = parent
+        ticket.save(update_fields=['parent'])
+
+    def _get_tickets_django(self) -> List[Dict[str, Any]]:
+        tickets: List[Dict[str, Any]] = []
+        for ticket in self._ticket_model.objects.filter(job=self._job).prefetch_related('dependencies'):
+            tickets.append(
+                {
+                    "id": str(ticket.id),
+                    "type": ticket.type,
+                    "title": ticket.title,
+                    "description": ticket.description,
+                    "status": ticket.status,
+                    "assigned_to": ticket.assigned_to,
+                    "dependencies": [str(dep.id) for dep in ticket.dependencies.all()],
+                    "parent_id": str(ticket.parent_id) if ticket.parent_id else None,
+                    "created_at": ticket.created_at.isoformat(),
+                    "updated_at": ticket.updated_at.isoformat(),
+                }
+            )
+        return tickets
+
+    # --------------------------------------------------------------------- #
+    # Local JSON helpers (CLI fallback)
+    # --------------------------------------------------------------------- #
+    def _ensure_local_file(self) -> None:
+        os.makedirs(os.path.dirname(self.local_file), exist_ok=True)
+        if not os.path.exists(self.local_file):
+            with open(self.local_file, 'w', encoding='utf-8') as fh:
+                json.dump([], fh)
+
+    def _save_local_ticket(self, ticket: Dict[str, Any]) -> None:
+        tickets = self.get_tickets()
+        tickets.append(ticket)
+        with open(self.local_file, 'w', encoding='utf-8') as fh:
+            json.dump(tickets, fh, indent=2)
+
+    def _update_local_ticket(self, ticket_id: str, *, key: str, value: Any) -> None:
+        tickets = self.get_tickets()
+        for ticket in tickets:
+            if ticket.get('id') == ticket_id:
+                ticket[key] = value
+                break
+        with open(self.local_file, 'w', encoding='utf-8') as fh:
+            json.dump(tickets, fh, indent=2)
+
+    # --------------------------------------------------------------------- #
+    # Public API
+    # --------------------------------------------------------------------- #
     def create_ticket(
         self,
         type: str,
@@ -33,59 +128,53 @@ class TicketSystem:
         dependencies: Optional[List[str]] = None,
         parent_id: Optional[str] = None,
     ) -> str:
-        ticket = self.TicketModel.objects.create(
-            job=self.job,
-            type=type,
-            title=title,
-            description=description,
-            assigned_to=assigned_to,
-        )
-        if parent_id:
-            self.update_ticket_parent(str(ticket.id), parent_id)
-        if dependencies:
-            self.update_ticket_dependencies(str(ticket.id), dependencies)
-        return str(ticket.id)
-
-    def update_ticket_dependencies(self, ticket_id: str, new_dependencies: List[str]):
-        ticket = self._get_ticket(ticket_id)
-        deps = self.TicketModel.objects.filter(id__in=new_dependencies, job=self.job)
-        ticket.dependencies.set(deps)
-
-    def update_ticket_parent(self, ticket_id: str, parent_id: str):
-        ticket = self._get_ticket(ticket_id)
-        parent = self._get_ticket(parent_id) if parent_id else None
-        ticket.parent = parent
-        ticket.save(update_fields=['parent', 'updated_at'])
-
-    def get_tickets(self) -> List[Dict]:
-        results: List[Dict] = []
-        tickets = (
-            self.TicketModel.objects.filter(job=self.job)
-            .select_related('parent')
-            .prefetch_related('dependencies')
-            .order_by('created_at')
-        )
-        for ticket in tickets:
-            results.append(
-                {
-                    'id': str(ticket.id),
-                    'type': ticket.type,
-                    'title': ticket.title,
-                    'description': ticket.description,
-                    'status': ticket.status,
-                    'assigned_to': ticket.assigned_to,
-                    'parent_id': str(ticket.parent_id) if ticket.parent_id else None,
-                    'dependencies': [str(dep.id) for dep in ticket.dependencies.all()],
-                    'created_at': ticket.created_at.isoformat(),
-                }
+        """
+        Create a new ticket (Epic or Story) and return its ID.
+        """
+        dependencies = dependencies or []
+        if self._use_django:
+            ticket_id = self._create_ticket_django(
+                type=type,
+                title=title,
+                description=description,
+                assigned_to=assigned_to,
             )
-        return results
+            if dependencies:
+                self._update_dependencies_django(ticket_id, dependencies)
+            if parent_id:
+                self._update_parent_django(ticket_id, parent_id)
+            return ticket_id
 
-    def mark_done(self, ticket_id: str):
-        ticket = self._get_ticket(ticket_id)
-        ticket.status = 'done'
-        ticket.updated_at = timezone.now()
-        ticket.save(update_fields=['status', 'updated_at'])
+        ticket_id = str(uuid.uuid4())
+        ticket = {
+            "id": ticket_id,
+            "type": type,
+            "title": title,
+            "description": description,
+            "status": "todo",
+            "assigned_to": assigned_to,
+            "dependencies": dependencies,
+            "parent_id": parent_id,
+        }
+        self._save_local_ticket(ticket)
+        return ticket_id
 
-    def _get_ticket(self, ticket_id: str):
-        return self.TicketModel.objects.get(id=ticket_id, job=self.job)
+    def update_ticket_dependencies(self, ticket_id: str, new_dependencies: List[str]) -> None:
+        if self._use_django:
+            self._update_dependencies_django(ticket_id, new_dependencies)
+            return
+        self._update_local_ticket(ticket_id, key='dependencies', value=new_dependencies)
+
+    def update_ticket_parent(self, ticket_id: str, parent_id: Optional[str]) -> None:
+        if self._use_django:
+            self._update_parent_django(ticket_id, parent_id or '')
+            return
+        self._update_local_ticket(ticket_id, key='parent_id', value=parent_id)
+
+    def get_tickets(self) -> List[Dict[str, Any]]:
+        if self._use_django:
+            return self._get_tickets_django()
+        if not os.path.exists(self.local_file):
+            return []
+        with open(self.local_file, 'r', encoding='utf-8') as fh:
+            return json.load(fh)
