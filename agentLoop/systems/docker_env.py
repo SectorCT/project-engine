@@ -57,12 +57,17 @@ class DockerEnv:
             if settings.CURSOR_API_KEY:
                 environment["CURSOR_API_KEY"] = settings.CURSOR_API_KEY
             
+            # Expose port 3000 for frontend (Vite dev server)
+            # Map container port 3000 to host port 3000
+            ports = {'3000/tcp': 3000}
+            
             # NO VOLUMES. We want isolation.
             # Container starts completely empty - no files copied.
             self.container = self.client.containers.run(
                 self.image_name,
                 name=self.container_name,
                 # volumes={}, # Removed binding
+                ports=ports,
                 environment=environment,
                 detach=True,
                 tty=True,
