@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 try:  # Optional dependency so this module still works in CLI-only mode
     from django.apps import apps
     from django.core.exceptions import AppRegistryNotReady
+    from django.utils import timezone
 except ImportError:  # pragma: no cover - happens outside Django
     apps = None
     AppRegistryNotReady = Exception  # type: ignore
@@ -92,6 +93,19 @@ class TicketSystem:
             )
         return tickets
 
+    def _update_status_django(self, ticket_id: str, status: str) -> Optional[Any]:
+        ticket = self._ticket_model.objects.filter(id=ticket_id, job=self._job).first()
+        if not ticket:
+            return None
+        ticket.status = status
+        ticket.updated_at = timezone.now()
+        ticket.save(update_fields=['status', 'updated_at'])
+        return ticket
+
+    def _delete_ticket_django(self, ticket_id: str) -> bool:
+        deleted, _ = self._ticket_model.objects.filter(id=ticket_id, job=self._job).delete()
+        return bool(deleted)
+
     # --------------------------------------------------------------------- #
     # Local JSON helpers (CLI fallback)
     # --------------------------------------------------------------------- #
@@ -115,6 +129,14 @@ class TicketSystem:
                 break
         with open(self.local_file, 'w', encoding='utf-8') as fh:
             json.dump(tickets, fh, indent=2)
+    def _delete_local_ticket(self, ticket_id: str) -> bool:
+        tickets = self.get_tickets()
+        new_tickets = [t for t in tickets if t.get('id') != ticket_id]
+        deleted = len(new_tickets) != len(tickets)
+        if deleted:
+            with open(self.local_file, 'w', encoding='utf-8') as fh:
+                json.dump(new_tickets, fh, indent=2)
+        return deleted
 
     # --------------------------------------------------------------------- #
     # Public API
@@ -178,3 +200,38 @@ class TicketSystem:
             return []
         with open(self.local_file, 'r', encoding='utf-8') as fh:
             return json.load(fh)
+
+    def update_ticket_status(self, ticket_id: str, status: str, check_epic_completion: bool = True) -> None:
+        if self._use_django:
+            ticket = self._update_status_django(ticket_id, status)
+        else:
+            self._update_local_ticket(ticket_id, key='status', value=status)
+            ticket = {'parent_id': None}
+
+        if check_epic_completion and status.lower() == 'done':
+            self._check_and_update_epic_status(ticket_id)
+
+    def _check_and_update_epic_status(self, story_ticket_id: str) -> None:
+        tickets = self.get_tickets()
+        story = next((t for t in tickets if str(t.get('id')) == str(story_ticket_id)), None)
+        if not story:
+            return
+        parent_id = story.get('parent_id')
+        if not parent_id:
+            return
+        siblings = [
+            t for t in tickets
+            if t.get('type') == 'story' and str(t.get('parent_id')) == str(parent_id)
+        ]
+        if not siblings:
+            return
+        if all(str(t.get('status', '')).lower() == 'done' for t in siblings):
+            if self._use_django:
+                self._update_status_django(str(parent_id), 'done')
+            else:
+                self._update_local_ticket(str(parent_id), key='status', value='done')
+
+    def delete_ticket(self, ticket_id: str) -> bool:
+        if self._use_django:
+            return self._delete_ticket_django(ticket_id)
+        return self._delete_local_ticket(ticket_id)

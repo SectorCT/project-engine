@@ -169,6 +169,11 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
             
             if success:
                 ticket['status'] = 'done'
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), 'done')
+                    except Exception as exc:
+                        print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
                 cb.ticket(
                     ticket,
                     'done',
@@ -178,6 +183,11 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
                 print(f"Ticket {ticket.get('title')} marked as DONE.")
             else:
                 ticket['status'] = 'failed'
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), 'failed', check_epic_completion=False)
+                    except Exception as exc:
+                        print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
                 cb.ticket(
                     ticket,
                     'failed',

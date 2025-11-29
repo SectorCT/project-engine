@@ -180,9 +180,26 @@ class JobMessageViewSet(
         )
 
 
-class TicketViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+from .serializers import (
+    AppSerializer,
+    JobCreateSerializer,
+    JobDetailSerializer,
+    JobMessageCreateSerializer,
+    JobMessageSerializer,
+    JobSerializer,
+    JobUpdateSerializer,
+    TicketSerializer,
+    TicketWriteSerializer,
+)
+class TicketViewSet(
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
     permission_classes = (IsAuthenticated,)
-    serializer_class = TicketSerializer
 
     def get_queryset(self):
         queryset = Ticket.objects.filter(job__owner=self.request.user).select_related('job', 'parent').prefetch_related('dependencies')
@@ -190,3 +207,8 @@ class TicketViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
         if job_id:
             queryset = queryset.filter(job_id=job_id)
         return queryset.order_by('created_at')
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return TicketWriteSerializer
+        return TicketSerializer
