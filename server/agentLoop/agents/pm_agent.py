@@ -23,48 +23,28 @@ Each story should be a small, logical step that's easy for AI to execute.
         self.project_structure = None  # Will be set before generating tickets
 
     def generate_epics(self, prd_content: str) -> List[Dict]:
-        """Step 1: Generate Epics only - separate frontend and backend epics"""
+        """Step 1: Generate Epics only"""
         structure_context = ""
         if self.project_structure:
             structure_context = f"\n\nPROJECT STRUCTURE (already initialized - DO NOT create setup tasks):\n{self.project_structure}"
         
-        # Check if project has both frontend and backend
-        has_frontend = "Frontend:" in str(self.project_structure) if self.project_structure else True
-        has_backend = "Backend:" in str(self.project_structure) if self.project_structure else True
-        
         prompt = f"""Here is the PRD. Identify the major feature areas (Epics).
-
-**CRITICAL: CREATE SEPARATE EPICS FOR FRONTEND AND BACKEND**
-
-Check the PROJECT STRUCTURE above:
-- If it shows "Frontend: Vite + React + TypeScript", create FRONTEND epics
-- If it shows "Backend: Express.js + TypeScript", create BACKEND epics
-- If BOTH exist, create TWO SETS of epics: one for frontend, one for backend
-
 DO NOT create a "Project Setup" epic - the project structure is already initialized automatically.
 
 PRD CONTENT:
 {prd_content}{structure_context}
 
-**EPIC NAMING CONVENTION:**
-- For each feature area, create TWO epics if both frontend and backend exist:
-  - Backend Epic: "Feature Name (Backend)" - e.g., "User Management (Backend)"
-  - Frontend Epic: "Feature Name (Frontend)" - e.g., "User Management (Frontend)"
-- If only one exists, create epics for that type only
-
 Provide ONLY a JSON list of Epic objects. Each Epic should have:
-- "id": A temporary ID as a string (e.g., "1", "2", "3", "4")
+- "id": A temporary ID as a string (e.g. "1", "2")
 - "type": "epic"
-- "title": Short summary with "(Backend)" or "(Frontend)" suffix if both exist
-- "description": What this epic covers (backend APIs/data or frontend UI/components)
-- "assigned_to": "Backend Dev" for backend epics, "Frontend Dev" for frontend epics
+- "title": Short summary
+- "description": What this epic covers
+- "assigned_to": Role (e.g., "Frontend Dev", "Backend Dev", "Designer")
 
-Example (when both frontend and backend exist):
+Example:
 [
-  {{"id": "1", "type": "epic", "title": "User Management (Backend)", "description": "User registration, authentication APIs, user data models...", "assigned_to": "Backend Dev"}},
-  {{"id": "2", "type": "epic", "title": "User Management (Frontend)", "description": "User registration forms, login UI, profile pages...", "assigned_to": "Frontend Dev"}},
-  {{"id": "3", "type": "epic", "title": "Post Management (Backend)", "description": "Post creation APIs, like/comment endpoints, data models...", "assigned_to": "Backend Dev"}},
-  {{"id": "4", "type": "epic", "title": "Post Management (Frontend)", "description": "Post creation forms, feed display, like/comment UI...", "assigned_to": "Frontend Dev"}}
+  {{"id": "1", "type": "epic", "title": "User Authentication", "description": "Login, Signup flows...", "assigned_to": "Backend Dev"}},
+  {{"id": "2", "type": "epic", "title": "Dashboard UI", "description": "Main dashboard interface...", "assigned_to": "Frontend Dev"}}
 ]
 """
         response_text = self.get_response(prompt)
@@ -95,33 +75,6 @@ EPIC DETAILS:
 PRD CONTENT (for context):
 {prd_content}{structure_info}
 
-**CRITICAL: EPIC TYPE DETERMINES STORY TYPE**
-Look at the Epic title and "assigned_to" field:
-- If the Epic title contains "(Backend)" or assigned_to is "Backend Dev" → Create ONLY BACKEND stories
-- If the Epic title contains "(Frontend)" or assigned_to is "Frontend Dev" → Create ONLY FRONTEND stories
-
-**BACKEND EPIC STORIES** (if this is a backend epic):
-- Create stories for: data models/schemas, API endpoints, business logic, database operations
-- Use "assigned_to": "Backend Dev"
-- Files will be in server/ directory
-- Order: Data models/schemas FIRST, then API endpoints that use them
-
-**FRONTEND EPIC STORIES** (if this is a frontend epic):
-- Create stories for: UI components, pages, API integration, user interactions, forms, displays
-- Use "assigned_to": "Frontend Dev"
-- Files will be in src/ directory
-- Order: UI components FIRST, then API integration that uses them
-
-DO NOT mix frontend and backend stories in the same epic. This epic should only contain stories matching its type.
-
-Example for "User Registration" epic:
-- Backend: "Create User Registration Schema" (assigned_to: "Backend Dev")
-- Backend: "Implement User Registration Endpoint" (assigned_to: "Backend Dev")
-- Frontend: "Create Registration Form Component" (assigned_to: "Frontend Dev")
-- Frontend: "Integrate Registration Form with API" (assigned_to: "Frontend Dev")
-
-The frontend stories will depend on backend stories (dependencies will be set automatically, but create them in logical order).
-
 REQUIREMENTS FOR STORIES:
 1. Break down into SMALL, ATOMIC tasks. Each story should be one logical step.
 2. Each story description MUST include these sections:
@@ -133,7 +86,6 @@ REQUIREMENTS FOR STORIES:
 3. Be VERY detailed and specific. The AI coder needs clear instructions.
 4. DO NOT create deployment, hosting, or CI/CD tasks - those are automated.
 5. Use TypeScript for all code (frontend: React+TS, backend: Express+TS).
-6. For "assigned_to", use "Backend Dev" for backend tasks and "Frontend Dev" for frontend tasks.
 
 **CRITICAL SIMPLICITY RULES:**
 - If there is NO BACKEND, DO NOT suggest databases, SQL, or any data storage systems.
@@ -160,18 +112,10 @@ Provide ONLY a JSON list of Story objects. Each Story should have:
 
 CRITICAL: parent_id MUST be "{epic_id}" for ALL stories.
 
-**CRITICAL JSON FORMATTING RULES:**
-1. You are writing VALID JSON. The response MUST be parseable JSON - test it mentally.
-2. All strings must be properly escaped. Do NOT put literal newlines inside string values.
-3. Use `\\n` for newlines, `\\t` for tabs, `\\"` for quotes inside strings.
-4. If a description is very long, use `\\n` to separate sections, but keep the entire string on ONE LINE in the JSON.
-5. Common mistake - DO NOT write:
-   "description": "Line 1
-   Line 2"
-   
-   Instead write:
-   "description": "Line 1\\nLine 2"
-6. Before responding, verify your JSON is valid - it must parse without errors.
+**IMPORTANT JSON FORMATTING RULE:**
+You are writing JSON. All strings must be properly escaped.
+Do NOT put literal newlines inside the "description" string.
+Use `\\n` for newlines.
 
 Example Descriptions:
 
@@ -186,9 +130,6 @@ For FRONTEND data tasks (NO backend):
 
 For FRONTEND integration tasks:
 "Context: We have created Shape components and fun facts data. Now we need to display them on the main page.\\n\\nGoal: Integrate the Shape component and fun facts data into the root App.tsx page to display all shapes with their facts.\\n\\nDevelopment Plan:\\n1. Import Shape component from src/components/Shape.tsx into src/App.tsx\\n2. Import funFacts data from src/data/funFacts.json\\n3. Replace the existing placeholder content in App.tsx's return statement\\n4. Map over the funFacts array to render each shape with its facts\\n5. Pass shape type and facts as props to the Shape component\\n\\nFiles Needed:\\n- src/App.tsx (modify - replace the existing return statement)\\n- src/components/Shape.tsx (already created, will be imported)\\n- src/data/funFacts.json (already created, will be imported)\\n\\nImplementation: In App.tsx, replace the current return statement with a layout that maps over funFacts. For each item, render a Shape component with shapeType={{item.shape}} and display the facts array below it. This will be the root page (/) of the website."
-
-For FRONTEND API integration (for frontend epics):
-"Context: The backend API endpoint for user registration is ready. We need to create a frontend form that calls this API.\\n\\nGoal: Create a registration form component that sends user data to the backend API endpoint.\\n\\nDevelopment Plan:\\n1. Create src/components/RegistrationForm.tsx component\\n2. Add form fields (email, password, username) with React state management\\n3. Add form validation (email format, password strength)\\n4. Implement API call to POST /api/register using fetch or axios\\n5. Handle success (redirect/show success message) and error (display error message)\\n6. Add loading state during API call\\n\\nFiles Needed:\\n- src/components/RegistrationForm.tsx (create)\\n- src/utils/api.ts (create or modify - add API helper functions)\\n\\nImplementation: Create a React functional component with useState for form fields. Use fetch() to POST to http://localhost:5000/api/register with JSON body. Handle response and update UI accordingly. This component will be used in the registration page."
 
 DO NOT include dependencies yet - that will be determined in the next step.
 """
@@ -208,6 +149,49 @@ DO NOT include dependencies yet - that will be determined in the next step.
                 if start != -1 and end != -1:
                     cleaned_text = cleaned_text[start:end+1]
             
+            # Fix literal newlines in JSON strings (common issue)
+            # The model sometimes includes literal newlines instead of escaped ones
+            import re
+            # Simple approach: replace literal newlines/tabs/carriage returns that appear
+            # between quotes (but not escaped ones)
+            # This regex matches: " then any chars (including newlines) until the next unescaped "
+            def fix_string_newlines(text):
+                # Replace literal control characters within string values
+                # We'll do this by finding string patterns and fixing them
+                result = []
+                i = 0
+                in_string = False
+                escape_next = False
+                
+                while i < len(text):
+                    char = text[i]
+                    
+                    if escape_next:
+                        result.append(char)
+                        escape_next = False
+                    elif char == '\\':
+                        result.append(char)
+                        escape_next = True
+                    elif char == '"' and not escape_next:
+                        in_string = not in_string
+                        result.append(char)
+                    elif in_string:
+                        # Inside a string - escape control characters
+                        if char == '\n':
+                            result.append('\\n')
+                        elif char == '\r':
+                            result.append('\\r')
+                        elif char == '\t':
+                            result.append('\\t')
+                        else:
+                            result.append(char)
+                    else:
+                        result.append(char)
+                    
+                    i += 1
+                
+                return ''.join(result)
+            
             # Try parsing first
             stories = json.loads(cleaned_text)
             return stories
@@ -223,89 +207,14 @@ DO NOT include dependencies yet - that will be determined in the next step.
                 print(f"Context: ...{cleaned_text[start:end]}...")
             
             # Try to fix literal newlines in string values
-            def fix_string_newlines(text):
-                """Replace literal control characters within JSON string values with escaped versions."""
-                result = []
-                i = 0
-                in_string = False
-                escape_next = False
-                
-                while i < len(text):
-                    char = text[i]
-                    
-                    if escape_next:
-                        # We just saw a backslash, this char is escaped
-                        result.append(char)
-                        escape_next = False
-                        i += 1
-                        continue
-                    
-                    if char == '\\':
-                        result.append(char)
-                        escape_next = True
-                        i += 1
-                        continue
-                    
-                    if char == '"':
-                        in_string = not in_string
-                        result.append(char)
-                        i += 1
-                        continue
-                    
-                    if in_string:
-                        # Inside a string - escape control characters that aren't already escaped
-                        if char == '\n':
-                            result.append('\\n')
-                        elif char == '\r':
-                            result.append('\\r')
-                        elif char == '\t':
-                            result.append('\\t')
-                        elif char == '\b':
-                            result.append('\\b')
-                        elif char == '\f':
-                            result.append('\\f')
-                        else:
-                            result.append(char)
-                    else:
-                        result.append(char)
-                    
-                    i += 1
-                
-                return ''.join(result)
-            
-            # Try to fix and parse again
             try:
                 fixed_text = fix_string_newlines(cleaned_text)
                 stories = json.loads(fixed_text)
                 print(f"Successfully parsed after fixing newlines.")
                 return stories
             except json.JSONDecodeError as e2:
-                # Try one more time with the improved fix function
-                # Sometimes the first attempt misses edge cases
-                try:
-                    # Apply the fix again - sometimes it needs multiple passes
-                    fixed_text = fix_string_newlines(cleaned_text)
-                    # Try parsing
-                    stories = json.loads(fixed_text)
-                    print(f"Successfully parsed after second fix attempt.")
-                    return stories
-                except (json.JSONDecodeError, Exception) as e3:
-                    print(f"Still failed after aggressive fix attempt. Error: {e3}")
+                print(f"Still failed after fix attempt. Error: {e2}")
                 print(f"Raw response (first 500 chars):\n{response_text[:500]}")
-                    # Last resort: try to extract just the array and manually fix
-                    try:
-                        # Find the JSON array boundaries
-                        array_start = cleaned_text.find('[')
-                        array_end = cleaned_text.rfind(']')
-                        if array_start != -1 and array_end != -1:
-                            array_text = cleaned_text[array_start:array_end+1]
-                            # Try one more time with the character-by-character fix
-                            array_fixed = fix_string_newlines(array_text)
-                            stories = json.loads(array_fixed)
-                            print(f"Successfully parsed after extracting array and fixing.")
-                            return stories
-                    except:
-                        pass
                 return []
 
     def generate_dependencies(self, all_epics: List[Dict], all_stories: List[Dict], prd_content: str) -> Dict[str, Dict[str, List[str]]]:
@@ -329,36 +238,20 @@ Think logically about the order:
 - Stories can depend on other Stories.
 - Base features should come before dependent features.
 
-**CRITICAL DEPENDENCY RULES:**
-1. **Frontend Epics depend on Backend Epics**: If there's a "Feature (Frontend)" epic, it should depend on the corresponding "Feature (Backend)" epic.
-   - Example: "User Management (Frontend)" depends on "User Management (Backend)"
-2. **Backend stories come FIRST**: Data models/schemas must be created before API endpoints that use them.
-3. **API endpoints come BEFORE frontend integration**: Backend endpoints must exist before frontend can call them.
-4. **Frontend stories depend on backend stories**: If a frontend story calls a backend API, it MUST depend on the backend story that creates that API.
-5. **Frontend UI components can be created independently**, but API integration stories must depend on backend endpoints.
-
-Example dependencies:
-- "Create User Schema" → no dependencies
-- "Create User Registration Endpoint" → depends on ["Create User Schema"]
-- "Create Registration Form Component" → no dependencies (can be created independently)
-- "Integrate Registration Form with API" → depends on ["Create User Registration Endpoint", "Create Registration Form Component"]
-
 Provide ONLY a JSON object with two keys: "epics" and "stories".
 Each maps ticket IDs to their dependency lists.
 
-Example (with separate frontend/backend epics):
+Example:
 {{
   "epics": {{
-    "1": [],  // Backend Epic: User Management (Backend) - no dependencies
-    "2": ["1"],  // Frontend Epic: User Management (Frontend) - depends on backend epic
-    "3": [],  // Backend Epic: Post Management (Backend) - no dependencies
-    "4": ["3"]  // Frontend Epic: Post Management (Frontend) - depends on backend epic
+    "1": [],  // Base Epic - No dependencies
+    "2": ["1"]  // Feature Epic - Depends on Base
   }},
   "stories": {{
-    "10": [],  // Backend story: Create User Schema - no dependencies
-    "11": ["10"],  // Backend story: Create Registration Endpoint - depends on schema
-    "12": [],  // Frontend story: Create Registration Form Component - no dependencies (UI only)
-    "13": ["11", "12"]  // Frontend story: Integrate Form with API - depends on both backend endpoint and frontend component
+    "10": [],  // Base Task 1
+    "11": ["10"],  // Base Task 2 - Depends on Task 1
+    "20": ["11"],  // Feature Task - Depends on Base Tasks
+    "21": ["20"]
   }}
 }}
 
@@ -366,7 +259,6 @@ IMPORTANT:
 - Avoid circular dependencies
 - Epic dependencies: Epics can depend on other Epics
 - Story dependencies: Stories can depend on other Stories (not Epics - use parent_id for that)
-- Frontend API integration stories MUST depend on their corresponding backend API endpoint stories
 """
         response_text = self.get_response(prompt)
         
