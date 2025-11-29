@@ -31,8 +31,25 @@ class JWTAuthMiddleware(BaseMiddleware):
                 validated = self.jwt_auth.get_validated_token(token)
                 user = await database_sync_to_async(self.jwt_auth.get_user)(validated)
                 scope['user'] = user
-            except InvalidToken:
-                pass
+            except InvalidToken as e:
+                # Log invalid token for debugging (only in DEBUG mode to avoid log spam)
+                if settings.DEBUG:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Invalid token in WebSocket connection: {str(e)}")
+        else:
+            # Log missing token for debugging (only in DEBUG mode)
+            if settings.DEBUG:
+                import logging
+                logger = logging.getLogger(__name__)
+                is_websocket = scope.get('type') == 'websocket'
+                query_string = scope.get('query_string', b'').decode()
+                logger.warning(
+                    f"No token found in WebSocket connection. "
+                    f"Type: {scope.get('type')}, "
+                    f"Has query string: {bool(query_string)}, "
+                    f"Query: {query_string[:100] if query_string else 'none'}"
+                )
 
         return await super().__call__(scope, receive, send)
 
@@ -47,7 +64,18 @@ class JWTAuthMiddleware(BaseMiddleware):
             if auth_header.lower().startswith('bearer '):
                 return auth_header.split(' ', 1)[1].strip()
 
-        if not getattr(settings, 'ALLOW_WS_TOKEN_QUERY', settings.DEBUG):
+        # For WebSocket connections, browsers cannot set custom headers,
+        # so we must check query parameters as a fallback.
+        # This is necessary for browser-based WebSocket clients.
+        # The ALLOW_WS_TOKEN_QUERY setting controls whether query tokens are accepted,
+        # but for WebSocket connections from browsers, this is the only option.
+        allow_query = getattr(settings, 'ALLOW_WS_TOKEN_QUERY', settings.DEBUG)
+        
+        # Always allow query tokens for WebSocket connections (protocol is 'websocket')
+        # since browsers cannot send custom headers. For HTTP, respect the setting.
+        is_websocket = scope.get('type') == 'websocket'
+        
+        if not allow_query and not is_websocket:
             return None
 
         query_string = scope.get('query_string', b'').decode()

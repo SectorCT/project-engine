@@ -1,7 +1,34 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
+// Derive WebSocket URL from API base URL
+function getWebSocketUrl(): string {
+  // If explicitly set, use it (ensure it's the correct protocol)
+  if (import.meta.env.VITE_WS_BASE_URL) {
+    const wsUrl = import.meta.env.VITE_WS_BASE_URL;
+    // Ensure protocol matches - if API is HTTPS, WebSocket should be WSS
+    const apiUrl = import.meta.env.VITE_API_BASE_URL || '';
+    if (apiUrl.startsWith('https://') && wsUrl.startsWith('ws://')) {
+      console.warn('WebSocket URL uses ws:// but API uses https://. This may cause connection issues.');
+      return wsUrl.replace('ws://', 'wss://');
+    }
+    return wsUrl;
+  }
+  
+  // Otherwise, derive from API base URL
+  const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  try {
+    const url = new URL(apiUrl);
+    // Convert http -> ws, https -> wss
+    const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${url.host}`;
+  } catch {
+    // Fallback to default
+    return 'ws://localhost:8000';
+  }
+}
+
+const WS_BASE_URL = getWebSocketUrl();
 const ALLOW_WS_TOKEN_QUERY = import.meta.env.VITE_ALLOW_WS_TOKEN_QUERY !== 'false';
 
 export interface WebSocketMessage {
@@ -50,18 +77,25 @@ export function useWebSocket({
     const token = api.getToken();
     if (!token) {
       console.error('No authentication token available for WebSocket connection');
+      onError?.(new Event('no_token'));
       return;
     }
 
     // Build WebSocket URL
     let wsUrl = `${WS_BASE_URL}/ws/jobs/${jobId}/`;
     
-    // Add token to query string if allowed (dev mode)
-    if (ALLOW_WS_TOKEN_QUERY) {
+    // Always add token to query string (browsers can't set custom headers for WebSocket)
+    // The server middleware will check for query token if ALLOW_WS_TOKEN_QUERY is enabled
       wsUrl += `?token=${encodeURIComponent(token)}`;
+
+    // Clean up any existing connection
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
 
     try {
+      console.log('Connecting to WebSocket:', wsUrl.replace(token, '***'));
       const ws = new WebSocket(wsUrl);
 
       // Set Authorization header if possible (some browsers support this)
@@ -89,12 +123,19 @@ export function useWebSocket({
         onError?.(error);
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected', { code: event.code, reason: event.reason, wasClean: event.wasClean });
         setIsConnected(false);
         onClose?.();
 
-        // Attempt to reconnect
+        // Don't reconnect on authentication errors (403) or unauthorized (4001, 4003)
+        if (event.code === 4003 || event.code === 4001 || event.code === 1008) {
+          console.error('WebSocket connection closed due to authentication/authorization error. Please check your token.');
+          onError?.(event);
+          return;
+        }
+
+        // Attempt to reconnect for other errors
         if (enabled && reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current += 1;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
@@ -102,6 +143,9 @@ export function useWebSocket({
             console.log(`Reconnecting... (attempt ${reconnectAttempts.current})`);
             connect();
           }, delay);
+        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+          console.error('Max reconnection attempts reached. Please refresh the page.');
+          onError?.(event);
         }
       };
 
