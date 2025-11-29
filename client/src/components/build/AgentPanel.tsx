@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { Search, MessageSquare, Send } from "lucide-react";
-import { JobMessage, JobStep } from "@/lib/api";
+import { Search, MessageSquare, Send, Trash2 } from "lucide-react";
+import { JobMessage, JobStep, api } from "@/lib/api";
+import { toast } from "sonner";
 
 interface AgentMessage {
   id: string;
@@ -24,6 +25,7 @@ interface AgentPanelProps {
   steps?: JobStep[];
   onSendMessage?: (content: string) => void;
   canSendMessages?: boolean;
+  onMessageDeleted?: () => void;
 }
 
 const agentColors: Record<string, string> = {
@@ -62,11 +64,32 @@ function formatTimestamp(dateString: string): string {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMessages = false }: AgentPanelProps) => {
+export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMessages = false, onMessageDeleted }: AgentPanelProps) => {
   const [filter, setFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [inputValue, setInputValue] = useState("");
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Check if in dev mode (for delete button visibility)
+  const isDevMode = import.meta.env.DEV || import.meta.env.VITE_DEV_MODE === 'true';
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!window.confirm("Are you sure you want to delete this message? This action cannot be undone.")) {
+      return;
+    }
+
+    setDeletingMessageId(messageId);
+    try {
+      await api.deleteJobMessage(messageId);
+      toast.success("Message deleted successfully");
+      onMessageDeleted?.();
+    } catch (error: any) {
+      toast.error(error?.detail || "Failed to delete message");
+    } finally {
+      setDeletingMessageId(null);
+    }
+  };
 
   // Combine messages and steps into a unified list
   const allMessages: AgentMessage[] = [
@@ -160,7 +183,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
             filteredMessages.map((message) => (
             <div
               key={message.id}
-              className="flex gap-2 animate-fade-in"
+              className="flex gap-2 animate-fade-in group"
             >
               <div
                 className={cn(
@@ -187,6 +210,17 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
                     >
                       DECISION
                     </Badge>
+                  )}
+                  {isDevMode && message.role !== 'system' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+                      onClick={() => handleDeleteMessage(message.id)}
+                      disabled={deletingMessageId === message.id}
+                    >
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </Button>
                   )}
                 </div>
                   <p className="text-xs text-foreground mb-0.5 whitespace-pre-wrap">

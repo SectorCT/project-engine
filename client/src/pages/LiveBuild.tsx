@@ -8,6 +8,9 @@ import { ArchitecturePanel } from "@/components/build/ArchitecturePanel";
 import { StatusPanel } from "@/components/build/StatusPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Pause,
@@ -15,6 +18,8 @@ import {
   Square,
   Download,
   Settings,
+  Edit,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, JobMessage, JobStep } from "@/lib/api";
@@ -50,6 +55,9 @@ export default function LiveBuild() {
   const [messages, setMessages] = useState<JobMessage[]>([]);
   const [steps, setSteps] = useState<JobStep[]>([]);
   const [appSpec, setAppSpec] = useState<any>(null);
+  const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Fetch job data
   const { data: job, isLoading, error, refetch } = useQuery({
@@ -121,8 +129,8 @@ export default function LiveBuild() {
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
     switch (message.kind) {
-      case 'chat':
-        // Add new message to the list
+      case 'stageUpdate':
+        // Chat message from user or agent
         if (message.role && message.content) {
           const newMessage: JobMessage = {
             id: `temp-${Date.now()}`,
@@ -132,17 +140,32 @@ export default function LiveBuild() {
             metadata: message.metadata || {},
             created_at: message.timestamp || new Date().toISOString(),
           };
-          setMessages((prev) => [...prev, newMessage]);
+          setMessages((prev) => {
+            // Avoid duplicates by checking if message already exists
+            const exists = prev.some(
+              (msg) => msg.content === message.content && 
+                       msg.sender === message.sender && 
+                       msg.created_at === message.timestamp
+            );
+            if (exists) return prev;
+            return [...prev, newMessage];
+          });
         }
-        // Refetch job to get the persisted message
-        refetch();
         break;
-      case 'status':
-        // Refetch job to get updated status
+      case 'jobStatus':
+        // Job status update (queued, running, done, failed)
+        if (message.status) {
+          // Update local job status immediately
+          if (job) {
+            // Update the job object in place
+            const updatedJob = { ...job, status: message.status as any };
+            // Refetch to get full updated job data
         refetch();
+          }
+        }
         break;
-      case 'step':
-        // Add new step
+      case 'agentDialogue':
+        // Executive agent step (CEO/CTO/Secretary)
         if (message.agent && message.message) {
           const newStep: JobStep = {
             id: `temp-${Date.now()}`,
@@ -151,13 +174,20 @@ export default function LiveBuild() {
             order: message.order || steps.length + 1,
             created_at: message.timestamp || new Date().toISOString(),
           };
-          setSteps((prev) => [...prev, newStep]);
+          setSteps((prev) => {
+            // Avoid duplicates by checking if step already exists
+            const exists = prev.some(
+              (step) => step.agent_name === message.agent && 
+                        step.message === message.message && 
+                        step.order === message.order
+            );
+            if (exists) return prev;
+            return [...prev, newStep];
+          });
         }
-        // Refetch job to get the persisted step
-        refetch();
         break;
-      case 'app':
-        // Job is complete, update app spec
+      case 'prdReady':
+        // Final app artifact is ready
         if (message.spec) {
           setAppSpec(message.spec);
           // Add app spec tab if it doesn't exist
@@ -174,12 +204,17 @@ export default function LiveBuild() {
             }
             return prev;
           });
+          // Refetch to get the full app data including prdMarkdown
+          refetch();
+          toast.success('Project completed!');
         }
-        refetch();
-        toast.success('Project completed!');
         break;
       case 'error':
         toast.error(message.message || 'An error occurred');
+        break;
+      default:
+        // Unknown message type, log for debugging
+        console.warn('Unknown WebSocket message type:', message.kind, message);
         break;
     }
   };
@@ -189,6 +224,32 @@ export default function LiveBuild() {
       sendMessage({ kind: 'chat', content });
     } else {
       toast.error('WebSocket not connected');
+    }
+  };
+
+  const handleEditPrompt = () => {
+    if (job) {
+      setEditPrompt(job.initial_prompt);
+      setIsEditPromptOpen(true);
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!id || !editPrompt.trim()) {
+      toast.error('Prompt cannot be empty');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await api.updateJob(id, editPrompt.trim());
+      toast.success('Prompt updated successfully');
+      setIsEditPromptOpen(false);
+      refetch();
+    } catch (error: any) {
+      toast.error(error?.detail || 'Failed to update prompt');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -248,6 +309,7 @@ export default function LiveBuild() {
   const status = mapServerStatusToClient(job.status);
   const timeElapsed = formatTimeAgo(job.created_at);
   const canSendMessages = job.status === 'collecting';
+  const canEditPrompt = job.status === 'collecting';
 
   const statusColors = {
     planning: "bg-status-planning/10 text-status-planning border-status-planning/20",
@@ -288,6 +350,17 @@ export default function LiveBuild() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canEditPrompt && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleEditPrompt}
+                className="gap-2"
+              >
+                <Edit className="w-4 h-4" />
+                Edit Prompt
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -359,6 +432,14 @@ export default function LiveBuild() {
               steps={steps}
               onSendMessage={handleSendMessage}
               canSendMessages={canSendMessages}
+              onMessageDeleted={() => {
+                refetch();
+                if (id) {
+                  api.getJobMessages(id)
+                    .then((msgs) => setMessages(msgs))
+                    .catch((err) => console.error('Failed to reload messages:', err));
+                }
+              }}
             />
           </motion.div>
 
@@ -368,6 +449,56 @@ export default function LiveBuild() {
           </div>
         </div>
       </div>
+
+      {/* Edit Prompt Dialog */}
+      {isEditPromptOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl mx-4 glass">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Edit Project Prompt</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsEditPromptOpen(false)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-prompt">Project Description</Label>
+                <Textarea
+                  id="edit-prompt"
+                  value={editPrompt}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                  placeholder="Describe your project idea..."
+                  className="min-h-[200px]"
+                />
+                <p className="text-sm text-muted-foreground">
+                  You can only edit the prompt while the project is in the planning phase.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEditPromptOpen(false)}
+                  disabled={isUpdating}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSavePrompt}
+                  disabled={isUpdating || !editPrompt.trim()}
+                >
+                  {isUpdating ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

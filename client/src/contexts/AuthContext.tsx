@@ -7,10 +7,20 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name?: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Helper function to decode JWT and get expiration time
+function getTokenExpiration(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp ? payload.exp * 1000 : null; // Convert to milliseconds
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthResponse['user'] | null>(null);
@@ -26,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {
           // Token invalid, clear it
-          api.setToken(null);
+          api.clearTokens();
         })
         .finally(() => {
           setIsLoading(false);
@@ -36,20 +46,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Set up automatic token refresh
+  useEffect(() => {
+    const token = api.getToken();
+    if (!token) return;
+
+    const checkAndRefreshToken = async () => {
+      const expiration = getTokenExpiration(token);
+      if (!expiration) return;
+
+      const now = Date.now();
+      const timeUntilExpiration = expiration - now;
+      const refreshBeforeMs = 5 * 60 * 1000; // Refresh 5 minutes before expiration
+
+      // If token expires soon, refresh it
+      if (timeUntilExpiration > 0 && timeUntilExpiration < refreshBeforeMs) {
+        try {
+          const response = await api.refreshToken();
+          api.setToken(response.access);
+          api.setRefreshToken(response.refresh);
+        } catch (error) {
+          // Refresh failed, user will need to login again
+          console.error('Token refresh failed:', error);
+          api.clearTokens();
+          setUser(null);
+        }
+      }
+    };
+
+    // Check immediately
+    checkAndRefreshToken();
+
+    // Check every minute
+    const interval = setInterval(checkAndRefreshToken, 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [user]);
+
   const login = async (email: string, password: string) => {
     const response = await api.login({ email, password });
     api.setToken(response.access);
+    api.setRefreshToken(response.refresh);
     setUser(response.user);
   };
 
   const register = async (email: string, password: string, name?: string) => {
     const response = await api.register({ email, password, name });
     api.setToken(response.access);
+    api.setRefreshToken(response.refresh);
     setUser(response.user);
   };
 
-  const logout = () => {
-    api.setToken(null);
+  const logout = async () => {
+    await api.logout();
     setUser(null);
   };
 

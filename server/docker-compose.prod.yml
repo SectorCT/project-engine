@@ -64,6 +64,11 @@ services:
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
       ALLOW_WS_TOKEN_QUERY: ${ALLOW_WS_TOKEN_QUERY:-false}
       ALLOW_JOB_PURGE: ${ALLOW_JOB_PURGE:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.7}
+      MAX_DISCUSSION_ROUNDS: ${MAX_DISCUSSION_ROUNDS:-10}
+      MAX_REQUIREMENTS_ROUNDS: ${MAX_REQUIREMENTS_ROUNDS:-5}
     restart: unless-stopped
     networks:
       - projectengine_network
@@ -93,6 +98,11 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.agent_loop.run_job}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.7}
+      MAX_DISCUSSION_ROUNDS: ${MAX_DISCUSSION_ROUNDS:-10}
+      MAX_REQUIREMENTS_ROUNDS: ${MAX_REQUIREMENTS_ROUNDS:-5}
     restart: unless-stopped
     networks:
       - projectengine_network
