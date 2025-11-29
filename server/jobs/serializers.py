@@ -85,6 +85,6 @@ class AppSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = App
-        fields = ('id', 'job_id', 'spec', 'created_at', 'updated_at')
+        fields = ('id', 'job_id', 'spec', 'prd_markdown', 'prd_generated_at', 'created_at', 'updated_at')
         read_only_fields = fields
 

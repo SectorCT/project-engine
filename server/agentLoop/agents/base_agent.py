@@ -2,7 +2,6 @@ from typing import List, Dict, Optional
 from openai import OpenAI
 from config.settings import settings
 
-
 class BaseAgent:
     def __init__(self, name: str, role: str, system_prompt: str):
         self.name = name
@@ -17,12 +16,12 @@ class BaseAgent:
         self.messages = [{"role": "system", "content": self.system_prompt}]
 
     def load_state(self, messages: Optional[List[Dict[str, str]]] = None):
-        """Hydrate the agent with a prior conversation."""
+        """Hydrate the agent with a previously stored conversation."""
         if messages:
             self.messages = messages
 
     def dump_state(self) -> List[Dict[str, str]]:
-        """Return a serializable view of the agent's memory."""
+        """Return the current conversation history for persistence."""
         return list(self.messages)
 
     def add_message(self, role: str, content: str):
@@ -48,5 +47,4 @@ class BaseAgent:
         except Exception as e:
             print(f"Error generating response for {self.name}: {e}")
             return f"Error: {str(e)}"
-
 

@@ -1,3 +1,4 @@
+from agentLoop.output.prd_generator import PRDGenerator
 """Django settings for the projectEngine backend."""
 from pathlib import Path
 import os

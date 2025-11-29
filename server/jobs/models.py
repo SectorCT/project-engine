@@ -75,6 +75,8 @@ class App(models.Model):
         related_name='apps',
     )
     spec = models.JSONField()
+    prd_markdown = models.TextField(blank=True, default='')
+    prd_generated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -105,4 +107,35 @@ class JobMessage(models.Model):
 
     def __str__(self) -> str:
         return f'{self.role} message for {self.job_id}'
+
+
+class Ticket(models.Model):
+    class Type(models.TextChoices):
+        EPIC = 'epic', 'Epic'
+        STORY = 'story', 'Story'
+        TASK = 'task', 'Task'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name='tickets')
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='children',
+    )
+    type = models.CharField(max_length=16, choices=Type.choices, default=Type.STORY)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    status = models.CharField(max_length=32, default='todo')
+    assigned_to = models.CharField(max_length=128, blank=True, default='Unassigned')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    dependencies = models.ManyToManyField('self', symmetrical=False, blank=True, related_name='dependents')
+
+    class Meta:
+        ordering = ('created_at',)
+
+    def __str__(self) -> str:
+        return f'{self.title} ({self.type})'
 

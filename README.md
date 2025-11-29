@@ -87,7 +87,7 @@ The compose file automatically runs migrations on start. Copy `.envtemplate` to 
    ```json
    {"kind": "chat", "content": "Here are more details about the target users."}
    ```
-4. Observe `chat`, `description`, `status`, `step`, and `app` payloads as the job progresses from requirements gathering through build-out.
+4. Observe `stageUpdate`, `jobStatus`, `agentDialogue`, and `prdReady` payloads as the job progresses from requirements gathering through build-out.
 
 ## Next Steps
 

@@ -1,80 +1,39 @@
-from typing import Dict, Optional
-
 from agents.client_relations_agent import ClientRelationsAgent
 from config.settings import settings
 
-
 class RequirementsGatherer:
-    """Structured wrapper around the client-relations agent for programmable interactions."""
-
-    SUMMARY_PREFIX = "REQUIREMENTS_SUMMARY:"
-
-    def __init__(self, state: Optional[Dict] = None):
+    def __init__(self):
         self.agent = ClientRelationsAgent()
         self.round_count = 0
-        self.started = False
 
-        if state:
-            self.round_count = state.get('round_count', 0)
-            self.started = state.get('started', False)
-            self.agent.load_state(state.get('messages'))
+    def gather_requirements(self, initial_idea: str) -> str:
+        """
+        Interact with the user to clarify requirements.
+        Returns the final summarized requirements.
+        """
+        print(f"\n--- Client Relations Phase ---\n")
+        
+        # Initial probe
+        response = self.agent.get_response(f"The user has this idea: '{initial_idea}'. Review it. If it's vague, ask clarifying questions. If it's detailed enough, summarize it starting with 'REQUIREMENTS_SUMMARY:'.")
+        print(f"{self.agent.name}: {response}\n")
 
-    def start(self, initial_idea: str) -> Dict:
-        """Kick off the clarification phase with the initial idea."""
-        if self.started:
-            raise RuntimeError('Session already started')
+        while self.round_count < settings.MAX_REQUIREMENTS_ROUNDS:
+            # Check if requirements are finalized
+            if "REQUIREMENTS_SUMMARY:" in response:
+                return response.split("REQUIREMENTS_SUMMARY:")[1].strip()
 
-        self.started = True
-        context = (
-            f"The user has this idea: '{initial_idea}'. Review it. "
-            "If it's vague, ask clarifying questions. If it's detailed enough, summarize it "
-            f"starting with '{self.SUMMARY_PREFIX}'."
-        )
-        response = self.agent.get_response(context)
-        return self._build_payload(response)
+            # Get user input
+            user_input = input("User (You): ")
+            self.round_count += 1
 
-    def handle_user_message(self, message: str) -> Dict:
-        """Process a user reply and return the agent's next response."""
-        if not self.started:
-            raise RuntimeError('Session has not been started')
+            # Get agent response
+            response = self.agent.get_response(user_input)
+            print(f"\n{self.agent.name}: {response}\n")
 
-        self.round_count += 1
-        response = self.agent.get_response(message)
-        return self._build_payload(response)
-
-    def force_summary(self) -> Dict:
-        """Force the agent to summarize when rounds are exhausted."""
-        response = self.agent.get_response(
-            f"We are out of time. Please summarize the requirements as they stand now, "
-            f"starting with '{self.SUMMARY_PREFIX}'."
-        )
-        return self._build_payload(response)
-
-    def serialize(self) -> Dict:
-        return {
-            'round_count': self.round_count,
-            'started': self.started,
-            'messages': self.agent.dump_state(),
-        }
-
-    def _build_payload(self, response: str) -> Dict:
-        summary = ''
-        finished = False
-
-        if self.SUMMARY_PREFIX in response:
-            finished = True
-            summary = response.split(self.SUMMARY_PREFIX, 1)[1].strip()
-
-        if self.round_count >= settings.MAX_REQUIREMENTS_ROUNDS and not finished:
-            finished = True
-            summary = summary or response
-
-        return {
-            'agent_name': self.agent.name,
-            'agent_role': self.agent.role,
-            'message': response,
-            'finished': finished,
-            'summary': summary,
-            'state': self.serialize(),
-        }
+        # Force summary if max rounds reached
+        print("\n(Max rounds reached, summarizing...)\n")
+        final_response = self.agent.get_response("We are out of time. Please summarize the requirements as they stand now, starting with 'REQUIREMENTS_SUMMARY:'.")
+        if "REQUIREMENTS_SUMMARY:" in final_response:
+            return final_response.split("REQUIREMENTS_SUMMARY:")[1].strip()
+        return final_response
 

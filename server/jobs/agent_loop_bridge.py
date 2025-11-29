@@ -17,6 +17,7 @@ if AGENT_LOOP_PATH.exists() and str(AGENT_LOOP_PATH) not in sys.path:
 try:  # pragma: no cover - exercised at runtime
     from requirements.gatherer import RequirementsGatherer
     from discussion.orchestrator import Orchestrator
+    from output.prd_generator import PRDGenerator
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "agentLoop package could not be imported. "
@@ -44,4 +45,8 @@ def force_requirements_summary(state: Dict) -> Dict:
 def run_executive_flow(requirements_summary: str) -> List[Dict[str, str]]:
     orchestrator = Orchestrator(requirements_summary)
     return orchestrator.start_discussion()
+
+
+def get_prd_renderer():
+    return PRDGenerator()
 

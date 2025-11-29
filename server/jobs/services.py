@@ -15,6 +15,7 @@ from .agent_loop_bridge import (
     handle_requirements_message,
     run_executive_flow,
     start_requirements_session,
+    get_prd_renderer,
 )
 from .models import App, Job, JobMessage, JobStep
 
@@ -54,7 +55,7 @@ def set_job_status(job_id: str, status: str, message: Optional[str] = None) -> J
     broadcast_job_event(
         str(job.id),
         {
-            'kind': 'status',
+            'kind': 'jobStatus',
             'jobId': str(job.id),
             'status': job.status,
             'message': message or job.error_message,
@@ -83,7 +84,7 @@ def append_step(job_id: str, *, agent_name: str, message: str, order: Optional[i
     broadcast_job_event(
         job_id,
         {
-            'kind': 'step',
+            'kind': 'agentDialogue',
             'jobId': job_id,
             'agent': step.agent_name,
             'message': step.message,
@@ -108,13 +109,15 @@ def store_app(job_id: str, spec: Dict[str, Any]) -> App:
         job.error_message = ''
         job.save(update_fields=['status', 'error_message', 'updated_at'])
 
+    set_job_status(job_id, Job.Status.DONE, 'PRD ready')
+
     broadcast_job_event(
         job_id,
         {
-            'kind': 'app',
+            'kind': 'prdReady',
             'jobId': job_id,
-            'status': job.status,
             'spec': app.spec,
+            'prdMarkdown': app.prd_markdown,
             'timestamp': app.updated_at.isoformat(),
         },
     )
@@ -129,7 +132,13 @@ def fail_job(job_id: str, *, message: str) -> Job:
 def initialize_requirements_collection(job: Job) -> Dict[str, Any]:
     """Kick off the requirements gathering agent and store the first response."""
     user_sender = job.owner.name or job.owner.email
-    record_chat_message(job, role=JobMessage.Role.USER, sender=user_sender, content=job.initial_prompt)
+    record_chat_message(
+        job,
+        role=JobMessage.Role.USER,
+        sender=user_sender,
+        content=job.initial_prompt,
+        broadcast=False,
+    )
 
     response = start_requirements_session(job.initial_prompt, state=_get_requirements_state(job))
     _store_requirements_state(job, response['state'])
@@ -156,6 +165,7 @@ def handle_requirements_chat(job: Job, user_message: str) -> Dict[str, Any]:
         role=JobMessage.Role.USER,
         sender=job.owner.name or job.owner.email,
         content=user_message,
+        broadcast=False,
     )
 
     state = _get_requirements_state(job)
@@ -216,17 +226,23 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
             job,
             agent=entry['agent'],
             stage='Executive Planning',
-            message=f'{entry["agent"]} is responding.',
+        message=f'{entry["agent"]} is responding.',
         )
         callbacks.on_step(agent_name=entry['agent'], message=entry['content'], order=idx)
 
     summary_content = _extract_summary(history)
+    prd_renderer = get_prd_renderer()
+    prd_content = prd_renderer.render_prd(job.prompt, history, project_name=str(job.id))
     spec = {
         'requirements': job.requirements_summary or job.prompt,
         'discussion': history,
         'summary': summary_content,
     }
     callbacks.on_app(spec)
+    app = job.app
+    app.prd_markdown = prd_content
+    app.prd_generated_at = timezone.now()
+    app.save(update_fields=['prd_markdown', 'prd_generated_at', 'updated_at'])
 
 
 def _extract_summary(history: Any) -> str:
@@ -256,6 +272,7 @@ def record_chat_message(
     content: str,
     sender: str = '',
     metadata: Optional[Dict[str, Any]] = None,
+    broadcast: bool = True,
 ) -> JobMessage:
     metadata = metadata or {}
     message = JobMessage.objects.create(
@@ -266,18 +283,19 @@ def record_chat_message(
         metadata=metadata,
     )
 
-    broadcast_job_event(
-        str(job.id),
-        {
-            'kind': 'chat',
-            'jobId': str(job.id),
-            'role': message.role,
-            'sender': sender,
-            'content': content,
-            'metadata': metadata,
-            'timestamp': message.created_at.isoformat(),
-        },
-    )
+    if broadcast:
+        broadcast_job_event(
+            str(job.id),
+            {
+                'kind': 'stageUpdate',
+                'jobId': str(job.id),
+                'role': message.role,
+                'sender': sender,
+                'content': content,
+                'metadata': metadata,
+                'timestamp': message.created_at.isoformat(),
+            },
+        )
     return message
 
 
