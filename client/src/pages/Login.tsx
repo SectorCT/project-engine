@@ -70,7 +70,7 @@ export default function Login() {
             <img 
               src="/logo.png" 
               alt="Project Engine" 
-              className="h-16 w-auto"
+              className="h-24 w-auto"
             />
           </div>
           <p className="text-xl text-foreground/80">
@@ -95,7 +95,7 @@ export default function Login() {
               <img 
                 src="/logo.png" 
                 alt="Project Engine" 
-                className="h-12 w-auto"
+                className="h-20 w-auto"
               />
             </div>
             <p className="text-muted-foreground">

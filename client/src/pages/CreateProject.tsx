@@ -166,9 +166,9 @@ export default function CreateProject() {
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <div className="flex items-center gap-3">
               <img 
-                src="/logo.png" 
+                src="/projectEngineICON.png" 
                 alt="Project Engine" 
-                className="h-8 w-auto"
+                className="h-8 w-8"
               />
               <div>
                 <h1 className="text-xl font-semibold">Create New Project</h1>
