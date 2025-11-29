@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Settings, FolderOpen, User, LogOut } from "lucide-react";
+import { Settings, User, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -31,11 +31,8 @@ export const Navbar = () => {
           onClick={() => navigate("/dashboard")}
         />
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/settings")}>
             <Settings className="w-5 h-5" />
-          </Button>
-          <Button variant="ghost" size="icon">
-            <FolderOpen className="w-5 h-5" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
