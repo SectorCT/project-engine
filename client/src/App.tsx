@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { PageTitle } from "@/components/PageTitle";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
@@ -30,6 +31,7 @@ function App() {
             v7_relativeSplatPath: true,
           }}
         >
+          <PageTitle />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/login" element={<Login />} />
