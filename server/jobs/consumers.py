@@ -12,20 +12,28 @@ from .tasks import run_job_task
 
 class JobConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = self.scope.get('user')
         if user is None or user.is_anonymous:
+            logger.warning(f"WebSocket connection rejected: anonymous user")
             await self.close(code=4001)
             return
 
         self.job_id = self.scope['url_route']['kwargs']['job_id']
+        logger.info(f"WebSocket connection attempt for job {self.job_id} by user {user.id}")
+        
         owns_job = await self._user_owns_job(user_id=user.id, job_id=self.job_id)
         if not owns_job:
+            logger.warning(f"WebSocket connection rejected: user {user.id} does not own job {self.job_id}")
             await self.close(code=4003)
             return
 
         self.group_name = job_group_name(self.job_id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        logger.info(f"WebSocket connection accepted for job {self.job_id} by user {user.id}")
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
