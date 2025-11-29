@@ -65,7 +65,7 @@ def resolve_container(project_id: Optional[str]) -> docker.models.containers.Con
 
 def stop_container(project_id: Optional[str]) -> None:
     """
-    Stop and remove the container associated with the given project/job ID.
+    Stop (but do not delete) the container associated with the given project/job ID.
 
     This is best-effort: failures are swallowed so API calls don't crash if Docker
     is unreachable.
@@ -82,11 +82,26 @@ def stop_container(project_id: Optional[str]) -> None:
     except APIError:
         pass
 
+
+def start_container(project_id: str) -> None:
+    """
+    Ensure the job-specific container is running (restarts if it exists but is stopped).
+    """
+    client = get_docker_client()
+    container_name = get_container_name(project_id)
     try:
-        container.remove(force=True)
-    except APIError:
-        # Nothing else we can do; leave container as-is.
+        container = client.containers.get(container_name)
+    except NotFound as exc:
+        raise ContainerNotFound(str(exc)) from exc
+
+    container.reload()
+    status = container.attrs.get('State', {}).get('Status')
+    if status == 'running':
         return
+    try:
+        container.start()
+    except APIError as exc:
+        raise DockerCommandError(f'Failed to start container {container_name}: {exc}') from exc
 
 
 def ensure_container_running(container: docker.models.containers.Container) -> None:

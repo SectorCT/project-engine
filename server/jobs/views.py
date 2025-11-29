@@ -9,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .artifact_service import FileContentError, FileStructureError, get_file_structure, read_file
-from .docker_utils import stop_container
+from .docker_utils import ContainerNotFound, start_container, stop_container
 from .models import App, Job, JobMessage, Ticket
 from .serializers import (
     AppSerializer,
@@ -140,6 +140,28 @@ class JobViewSet(
         except FileContentError as exc:
             return self._artifact_error_response(exc)
         return Response(payload)
+
+    @action(detail=True, methods=('post',), url_path='containers/start')
+    def start_container(self, request, id=None):
+        job = self.get_object()
+        try:
+            start_container(str(job.id))
+        except ContainerNotFound:
+            return Response({'detail': 'Job container not found. The job may need to be rebuilt.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception('Failed to start container for job %s: %s', job.id, exc)
+            return Response({'detail': 'Unable to start job container.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'detail': 'Job container is running.'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=('post',), url_path='containers/stop')
+    def stop_container_action(self, request, id=None):
+        job = self.get_object()
+        try:
+            stop_container(str(job.id))
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception('Failed to stop container for job %s: %s', job.id, exc)
+            return Response({'detail': 'Unable to stop job container.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'detail': 'Job container stopped.'}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=('post',), url_path='continue')
     def continue_job(self, request, id=None):

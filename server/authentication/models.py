@@ -8,7 +8,6 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("The Email field must be set")
 
-        # For Google OAuth users, username can be auto-generated from email
         if not username:
             base_username = email.split('@')[0]
             username = base_username
@@ -44,7 +43,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     username = models.CharField(max_length=150, unique=True)
     name = models.CharField(max_length=150, blank=True)
-    google_id = models.CharField(max_length=255, unique=True, blank=True, null=True)
 
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
