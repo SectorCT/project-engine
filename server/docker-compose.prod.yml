@@ -1,0 +1,109 @@
+services:
+  db:
+    image: postgres:16-alpine
+    # Don't expose port to host - only accessible within Docker network
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - projectengine_pgdata:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: projectengine_db
+      POSTGRES_USER: projectengine_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U projectengine_user -d projectengine_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - projectengine_network
+
+  redis:
+    image: redis:7-alpine
+    # Don't expose port to host - only accessible within Docker network
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - projectengine_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - projectengine_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Only bind to localhost to prevent external access (nginx will proxy)
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      DB_NAME: projectengine_db
+      DB_USER: projectengine_user
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.agent_loop.run_job}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      ALLOW_WS_TOKEN_QUERY: ${ALLOW_WS_TOKEN_QUERY:-false}
+      ALLOW_JOB_PURGE: ${ALLOW_JOB_PURGE:-false}
+    restart: unless-stopped
+    networks:
+      - projectengine_network
+    command: >
+      sh -c "python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 server.asgi:application"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      DB_NAME: projectengine_db
+      DB_USER: projectengine_user
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.agent_loop.run_job}
+    restart: unless-stopped
+    networks:
+      - projectengine_network
+    command: >
+      sh -c "celery -A server worker -l info"
+
+volumes:
+  projectengine_pgdata:
+  projectengine_redisdata:
+
+networks:
+  projectengine_network:
+    driver: bridge
+
