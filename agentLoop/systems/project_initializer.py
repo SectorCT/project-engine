@@ -121,6 +121,10 @@ class ProjectInitializer:
         readme_content = _generate_readme(has_backend, has_frontend)
         _write_file_to_docker(docker_env, "/app/README.md", readme_content)
         
+        # Create .cursorrules file
+        cursorrules_content = _generate_cursorrules(has_backend, has_frontend)
+        _write_file_to_docker(docker_env, "/app/.cursorrules", cursorrules_content)
+        
         if has_frontend:
             _init_frontend(docker_env, structure)
         
@@ -207,10 +211,14 @@ def _generate_package_json(has_backend: bool, has_frontend: bool) -> str:
         dependencies.update({
             "express": "^4.18.0",
             "cors": "^2.8.5",
+            "mongoose": "^8.0.0",
+            "bcrypt": "^5.1.1",
         })
         dev_dependencies.update({
             "@types/express": "^4.17.0",
             "@types/cors": "^2.8.0",
+            "@types/mongoose": "^5.11.97",
+            "@types/bcrypt": "^5.0.2",
             "tsx": "^4.0.0",
         })
     
@@ -280,6 +288,190 @@ def _generate_readme(has_backend: bool, has_frontend: bool) -> str:
     parts.append("- `npm run build` - Build for production")
     parts.append("- `npm test` - Run tests")
     return "\n".join(parts)
+
+
+def _generate_cursorrules(has_backend: bool, has_frontend: bool) -> str:
+    """Generate .cursorrules file with development guidelines."""
+    rules = []
+    
+    rules.append("# Project Development Rules")
+    rules.append("")
+    rules.append("## React/Frontend Best Practices")
+    rules.append("")
+    rules.append("### Component Reusability")
+    rules.append("- ALWAYS check if a component already exists before creating a new one")
+    rules.append("- Look in src/components/ for reusable components")
+    rules.append("- Extract common patterns into reusable components")
+    rules.append("- Use composition over duplication")
+    rules.append("")
+    rules.append("### State Management")
+    rules.append("- Use React Context API for shared application state")
+    rules.append("- Create context providers in src/contexts/ for data that needs to be accessed across components")
+    rules.append("- Use useState for local component state")
+    rules.append("- Use useReducer for complex state logic")
+    rules.append("- Avoid prop drilling - use context when data needs to pass through multiple levels")
+    rules.append("")
+    rules.append("### Modern React Patterns")
+    rules.append("- Use functional components with hooks")
+    rules.append("- Use TypeScript for type safety")
+    rules.append("- Follow React best practices: proper key usage, memoization when needed")
+    rules.append("- Use custom hooks to extract reusable logic")
+    rules.append("- Keep components small and focused (single responsibility)")
+    rules.append("")
+    rules.append("### Form Handling")
+    rules.append("- ALWAYS implement form validation on the frontend")
+    rules.append("- Use controlled components for form inputs")
+    rules.append("- Validate input before submission")
+    rules.append("- Show clear error messages to users")
+    rules.append("- Disable submit button while form is invalid")
+    rules.append("- Sanitize user input before sending to backend")
+    rules.append("- CRITICAL: Password forms on signup MUST include a 'Confirm Password' field (frontend only)")
+    rules.append("- CRITICAL: When handling form errors, NEVER allow page refresh that clears form data")
+    rules.append("- Handle form state properly: preserve form data on errors, prevent accidental page reloads")
+    rules.append("- Use React state to maintain form values even if errors occur")
+    rules.append("- Prevent form submission from triggering page refresh (use preventDefault)")
+    rules.append("- Show error messages without clearing form inputs")
+    rules.append("")
+    rules.append("### Data Synchronization")
+    rules.append("- ALWAYS refresh/update data after mutations (create, update, delete)")
+    rules.append("- After creating new data (e.g., new post), refetch the list to show the new item")
+    rules.append("- After updating data, refresh the affected data in the UI")
+    rules.append("- After deleting data, remove it from the UI or refetch the list")
+    rules.append("- Use React Context or state management to update data across components")
+    rules.append("- Don't rely on optimistic updates alone - always verify with server")
+    rules.append("")
+    rules.append("### API Calls & Fetch Requests")
+    rules.append("- CRITICAL: NEVER use fetch() directly in components or pages")
+    rules.append("- CRITICAL: ALWAYS create and use a centralized API utility file: src/utils/api.ts")
+    rules.append("- All API calls must go through functions in src/utils/api.ts")
+    rules.append("- CRITICAL: NEVER use base URL (e.g., http://localhost:5000) in API calls")
+    rules.append("- CRITICAL: ALWAYS use relative paths starting with /api/... (e.g., /api/posts, /api/users)")
+    rules.append("- Vite configuration automatically proxies /api/* requests to the backend")
+    rules.append("- Example: Use fetch('/api/posts') NOT fetch('http://localhost:5000/api/posts')")
+    rules.append("- Example api.ts structure:")
+    rules.append("  ```typescript")
+    rules.append("  // src/utils/api.ts")
+    rules.append("  export const getPosts = async () => {")
+    rules.append("    const response = await fetch('/api/posts');")
+    rules.append("    return response.json();")
+    rules.append("  };")
+    rules.append("  ```")
+    rules.append("- Import and use API functions in components: import { getPosts } from '@/utils/api'")
+    rules.append("")
+    rules.append("### Page/Route Integration")
+    rules.append("- ALWAYS integrate pages into the app structure immediately after creation")
+    rules.append("- If creating a page/route component, you MUST:")
+    rules.append("  1. Set up routing (add route to router configuration)")
+    rules.append("  2. Add navigation (navbar, menu, button, or link to access the page)")
+    rules.append("  3. If it's a home/landing page, set it as the default route (/)")
+    rules.append("  4. Ensure the page is accessible and visible in the app")
+    rules.append("- Never create a page component without integrating it into routing and navigation")
+    rules.append("- Check existing routing setup (likely in src/App.tsx or src/main.tsx)")
+    rules.append("- If navigation doesn't exist, create it (navbar, menu, etc.)")
+    rules.append("")
+    rules.append("### Color & Accessibility")
+    rules.append("- ALWAYS ensure text is readable with sufficient color contrast")
+    rules.append("- Text must be readable in its default state (before hover)")
+    rules.append("- NEVER use the same color for background and text (e.g., blue button with blue text)")
+    rules.append("- Hover animations should enhance visibility, not fix broken text readability")
+    rules.append("- If text color changes on hover, ensure it's readable in BOTH states")
+    rules.append("- Use WCAG contrast guidelines: minimum 4.5:1 for normal text, 3:1 for large text")
+    rules.append("- Test color combinations to ensure text is always visible and readable")
+    rules.append("- Example of BAD: Blue button with blue text that only becomes white on hover")
+    rules.append("- Example of GOOD: Blue button with white text (readable in default state)")
+    rules.append("")
+    
+    if has_backend:
+        rules.append("## Backend Best Practices")
+        rules.append("")
+        rules.append("### Data Validation")
+        rules.append("- ALWAYS validate all input data on the backend")
+        rules.append("- Validate request body, query parameters, and route parameters")
+        rules.append("- Use validation middleware or libraries")
+        rules.append("- Return clear, specific error messages for validation failures")
+        rules.append("- Never trust client-side validation alone")
+        rules.append("")
+        rules.append("### API Design")
+        rules.append("- Use RESTful conventions for API endpoints")
+        rules.append("- Return appropriate HTTP status codes")
+        rules.append("- Use consistent response formats")
+        rules.append("- Implement proper error handling")
+        rules.append("")
+        rules.append("### Database (MongoDB)")
+        rules.append("- ALWAYS use Mongoose for all database interactions")
+        rules.append("- Do NOT use the native MongoDB driver")
+        rules.append("- Define Mongoose schemas for all data models")
+        rules.append("- Use Mongoose models for all CRUD operations")
+        rules.append("- Place Mongoose models in server/models/ directory")
+        rules.append("- Use Mongoose validation and middleware")
+        rules.append("- Use Mongoose connection from mongodb.config.ts")
+        rules.append("")
+        rules.append("### Authentication & Authorization")
+        rules.append("- If an endpoint requires authentication, ALWAYS protect it on the backend")
+        rules.append("- Use authentication middleware to protect routes (e.g., verify JWT token)")
+        rules.append("- Return 401 Unauthorized if authentication fails")
+        rules.append("- CRITICAL: If saving passwords in the database, ALWAYS hash them before storing")
+        rules.append("- NEVER store plain text passwords in the database")
+        rules.append("- Use bcrypt, argon2, or similar hashing library to hash passwords")
+        rules.append("- Hash passwords on the backend before saving to database")
+        rules.append("- On the frontend, ALWAYS automatically redirect to login page if authentication is required")
+        rules.append("- Check authentication status before making API calls to protected endpoints")
+        rules.append("- If API call returns 401, redirect user to login page")
+        rules.append("- Use route guards or authentication checks in React components")
+        rules.append("- Protect routes that require authentication (redirect if not authenticated)")
+        rules.append("")
+        rules.append("### Security")
+        rules.append("- CRITICAL: If saving passwords, ALWAYS hash them before storing in database")
+        rules.append("- NEVER store plain text passwords - use bcrypt, argon2, or similar")
+        rules.append("- Hash passwords on the backend before saving to MongoDB")
+        rules.append("- Sanitize all user input")
+        rules.append("- Use Mongoose schema validation (not parameterized queries)")
+        rules.append("- Implement proper authentication and authorization")
+        rules.append("- Validate file uploads (type, size, content)")
+        rules.append("")
+    
+    rules.append("## General Development Rules")
+    rules.append("")
+    rules.append("### Code Quality")
+    rules.append("- Write clean, readable, maintainable code")
+    rules.append("- Follow TypeScript best practices")
+    rules.append("- Use meaningful variable and function names")
+    rules.append("- Add comments for complex logic")
+    rules.append("- Keep functions small and focused")
+    rules.append("")
+    rules.append("### File Organization")
+    rules.append("- Follow the existing project structure")
+    rules.append("- Place components in src/components/")
+    rules.append("- Place utilities in src/lib/ or src/utils/")
+    rules.append("- Place types/interfaces in appropriate type files")
+    rules.append("- Keep related files together")
+    rules.append("")
+    rules.append("### Error Handling")
+    rules.append("- Always handle errors gracefully")
+    rules.append("- Provide user-friendly error messages")
+    rules.append("- Log errors appropriately for debugging")
+    rules.append("- Don't expose sensitive information in error messages")
+    rules.append("")
+    rules.append("### TODO Comments for Future Implementation")
+    rules.append("- If a dependent function or feature is not implemented yet, leave a detailed TODO comment")
+    rules.append("- Format: TODO: really detailed description ENDTODO")
+    rules.append("- The description should be VERY detailed, explaining:")
+    rules.append("  * What needs to be implemented")
+    rules.append("  * Why it's needed (context)")
+    rules.append("  * What dependencies or prerequisites exist")
+    rules.append("  * Any specific requirements or constraints")
+    rules.append("- Example: TODO: Implement user authentication middleware. This is needed because the /api/profile endpoint requires authentication. The middleware should check for a JWT token in the Authorization header, verify it using the JWT_SECRET, and attach the user object to req.user. If token is missing or invalid, return 401. ENDTODO")
+    rules.append("- After all tickets are completed, the system will automatically parse the project for TODOs and create tickets for them")
+    rules.append("")
+    rules.append("### Authentication Flow")
+    rules.append("- CRITICAL: If there is a login form, the signup function MUST automatically log the user in after successful registration")
+    rules.append("- Do NOT redirect to login page after signup - the user should be logged in immediately")
+    rules.append("- After signup, set authentication tokens/cookies and update authentication state")
+    rules.append("- Redirect to the appropriate page (e.g., dashboard, home) after signup, not to login")
+    rules.append("- Example: After successful signup, call login function with the new user credentials, or directly set auth state if signup returns auth tokens")
+    rules.append("")
+    
+    return "\n".join(rules)
 
 
 def _init_frontend(docker_env: DockerEnv, structure: Dict):
@@ -485,10 +677,11 @@ def _setup_mongodb(docker_env: DockerEnv, structure: Dict):
 // MongoDB runs on port 27017 (default port)
 export const MONGODB_URI = "{mongodb_uri}";
 
-// Example usage:
-// import {{ MongoClient }} from 'mongodb';
-// const client = new MongoClient(MONGODB_URI);
-// await client.connect();
+// Example usage with Mongoose:
+// import mongoose from 'mongoose';
+// import {{ MONGODB_URI }} from './mongodb.config';
+// await mongoose.connect(MONGODB_URI);
+// const db = mongoose.connection;
 '''
     
     _write_file_to_docker(docker_env, "/app/server/mongodb.config.ts", mongodb_config)

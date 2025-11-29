@@ -221,15 +221,16 @@ class DockerEnv:
             # Non-fatal? Maybe fatal if we need the code.
             raise
 
-    def exec_run(self, command: str, workdir: str = "/app"):
+    def exec_run(self, command: str, workdir: str = "/app", silent: bool = False):
         """
-        Execute a command inside the container with enhanced logging.
+        Execute a command inside the container with minimal logging.
         """
         if not self.container:
             raise Exception("Container not running.")
         
-        print(f"[DockerEnv] Executing command: {command[:100]}..." if len(command) > 100 else f"[DockerEnv] Executing command: {command}")
-        print(f"[DockerEnv] Working directory: {workdir}")
+        if not silent:
+            # Only log if explicitly requested (for important commands)
+            pass
         
         try:
             exit_code, output = self.container.exec_run(
@@ -248,15 +249,15 @@ class DockerEnv:
             except:
                 decoded_output = str(output)
             
-            # Log execution details
-            print(f"[DockerEnv] Command exit code: {exit_code}")
-            if exit_code != 0:
-                print(f"[DockerEnv] Command failed with exit code {exit_code}")
+            # Only log errors if not silent
+            if not silent and exit_code != 0:
+                print(f"⚠️  Command failed with exit code {exit_code}")
             
             return exit_code, decoded_output
             
         except Exception as e:
-            print(f"[DockerEnv] Exception during command execution: {type(e).__name__}: {e}")
+            if not silent:
+                print(f"⚠️  Execution error: {str(e)}")
             # Return error exit code and error message
             return 1, f"Execution error: {str(e)}"
 

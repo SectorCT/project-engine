@@ -68,20 +68,28 @@ PRD CONTENT (for context):
 **FRONTEND STORIES:**
 For COMPLEX features, create stories for:
 - UI components (forms, displays, buttons, modals, etc.)
-- Pages/routes
+- Pages/routes (ALWAYS include integration details: routing, navigation)
 - API integration (calling backend endpoints)
 - User interactions (click handlers, form submissions, etc.)
 - State management
-- Routing
+- Routing and navigation
+
+CRITICAL FOR PAGES/ROUTES:
+When creating a page/route story, ALWAYS specify in the description:
+1. How the page is accessed (URL route, navigation link, button click, etc.)
+2. Where navigation to this page exists (navbar, menu, button, etc.)
+3. How it integrates with the app structure (routing setup)
+4. If it's a home/landing page, specify it should be the default route (/)
+Example: "Create HomePage component at / route, accessible as default route and via navbar 'Home' link. Add route to router configuration and ensure it's the default route."
 
 For SIMPLE config changes, create ONE story that directly edits the file.
 
 Each story should be SMALL and ATOMIC. Include:
 - Context: Why this task is needed
 - Goal: What we aim to achieve
-- Development Plan: Step-by-step approach
+- Development Plan: Step-by-step approach (for pages, include routing and navigation steps)
 - Files Needed: List of files to create/modify (in src/ directory)
-- Implementation: Specific code changes
+- Implementation: Specific code changes (for pages, include routing setup)
 
 Provide ONLY a JSON object with this structure:
 {{
@@ -186,25 +194,42 @@ Provide ONLY a JSON object with this structure:
                 return result
             except (json.JSONDecodeError, Exception) as e3:
                 print(f"Still failed after second fix attempt. Error: {e3}")
-                print(f"Raw response (first 1000 chars):\n{response_text[:1000]}")
-                # Last resort: try to manually extract and fix just the description fields
+                # Try fixing missing commas after string fields
                 try:
                     import re
-                    # Find all description fields and fix them
-                    def replace_newlines_in_quotes(match):
-                        full_match = match.group(0)
-                        # Replace literal newlines with \n in the matched string
-                        fixed = full_match.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-                        return fixed
-                    
-                    # Match: "description": "..." handling escaped quotes
-                    # This is a simple approach: find strings that span multiple lines
-                    pattern = r'"description"\s*:\s*"[^"]*(?:\n[^"]*)*"'
-                    fixed_text = re.sub(pattern, replace_newlines_in_quotes, cleaned_text, flags=re.MULTILINE)
+                    # Fix missing commas: look for "field": "value" followed by "field" (missing comma)
+                    # Pattern: "value"\n\s*"field" -> "value",\n\s*"field"
+                    fixed_text = re.sub(r'"\s*\n\s*"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:', r'",\n    "\1":', cleaned_text)
+                    # Also fix: "value"\s+"field" (same line, missing comma)
+                    fixed_text = re.sub(r'"\s+"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:', r'", "\1":', fixed_text)
+                    # Apply newline fix again
+                    fixed_text = fix_string_newlines(fixed_text)
                     result = json.loads(fixed_text)
-                    print(f"Successfully parsed after manual description fix.")
+                    print(f"Successfully parsed after comma fix.")
                     return result
                 except Exception as e4:
-                    print(f"All fix attempts failed. Error: {e4}")
-                    return {"epic": None, "stories": []}
+                    print(f"Comma fix failed. Error: {e4}")
+                    # Last resort: try to manually extract and fix just the description fields
+                    try:
+                        import re
+                        # Find all description fields and fix them
+                        def replace_newlines_in_quotes(match):
+                            full_match = match.group(0)
+                            # Replace literal newlines with \n in the matched string
+                            fixed = full_match.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                            return fixed
+                        
+                        # Match: "description": "..." handling escaped quotes
+                        # This is a simple approach: find strings that span multiple lines
+                        pattern = r'"description"\s*:\s*"[^"]*(?:\n[^"]*)*"'
+                        fixed_text = re.sub(pattern, replace_newlines_in_quotes, cleaned_text, flags=re.MULTILINE)
+                        # Also try to fix missing commas after description
+                        fixed_text = re.sub(r'(description"\s*:\s*"[^"]*")\s*\n\s*"([a-zA-Z_])', r'\1,\n    "\2', fixed_text)
+                        result = json.loads(fixed_text)
+                        print(f"Successfully parsed after manual description fix.")
+                        return result
+                    except Exception as e5:
+                        print(f"All fix attempts failed. Error: {e5}")
+                        print(f"Raw response (first 1000 chars):\n{response_text[:1000]}")
+                        return {"epic": None, "stories": []}
 

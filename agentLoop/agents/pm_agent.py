@@ -291,7 +291,7 @@ DO NOT include dependencies yet - that will be determined in the next step.
                     return stories
                 except (json.JSONDecodeError, Exception) as e3:
                     print(f"Still failed after aggressive fix attempt. Error: {e3}")
-                    print(f"Raw response (first 500 chars):\n{response_text[:500]}")
+                print(f"Raw response (first 500 chars):\n{response_text[:500]}")
                     # Last resort: try to extract just the array and manually fix
                     try:
                         # Find the JSON array boundaries
@@ -306,7 +306,7 @@ DO NOT include dependencies yet - that will be determined in the next step.
                             return stories
                     except:
                         pass
-                    return []
+                return []
 
     def generate_dependencies(self, all_epics: List[Dict], all_stories: List[Dict], prd_content: str) -> Dict[str, Dict[str, List[str]]]:
         """Step 3: Generate dependencies between Epics and Stories"""
