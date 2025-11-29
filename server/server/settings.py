@@ -204,3 +204,4 @@ DOCKER_SOCKET_PATH = os.getenv('DOCKER_SOCKET_PATH', '')
 
 ALLOW_WS_TOKEN_QUERY = os.getenv('ALLOW_WS_TOKEN_QUERY', str(DEBUG)).lower() == 'true'
 ALLOW_JOB_PURGE = os.getenv('ALLOW_JOB_PURGE', str(DEBUG)).lower() == 'true'
+CLEANUP_JOB_CONTAINERS = os.getenv('CLEANUP_JOB_CONTAINERS', 'True').lower() == 'true'

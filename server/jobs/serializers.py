@@ -80,6 +80,10 @@ class JobUpdateSerializer(serializers.ModelSerializer):
         fields = ('initial_prompt',)
 
 
+class JobContinueSerializer(serializers.Serializer):
+    requirements = serializers.CharField(max_length=5000, allow_blank=False, trim_whitespace=True)
+
+
 class AppSerializer(serializers.ModelSerializer):
     job_id = serializers.UUIDField(source='job.id', read_only=True)
 

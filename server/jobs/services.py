@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from django.conf import settings
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
@@ -18,7 +19,9 @@ from .agent_loop_bridge import (
     run_executive_flow,
     run_ticket_builder,
     start_requirements_session,
+    summarize_followup_requirements,
 )
+from .docker_utils import stop_container
 from .models import App, Job, JobMessage, JobStep, Ticket
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,15 @@ def broadcast_job_event(job_id: str, payload: Dict[str, Any]) -> None:
             'payload': payload,
         },
     )
+
+
+def _cleanup_job_container(job_id: str) -> None:
+    if not getattr(settings, 'CLEANUP_JOB_CONTAINERS', True):
+        return
+    try:
+        stop_container(job_id)
+    except Exception:  # pragma: no cover - best effort
+        logger.warning('Failed to clean up container for job %s', job_id, exc_info=True)
 
 
 def broadcast_ticket_update(
@@ -251,8 +263,9 @@ def finalize_requirements(job: Job, summary: str) -> Job:
     return job
 
 
-def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
+def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks', requirements_text: Optional[str] = None) -> None:
     """Execute the remaining agentLoop phases once requirements are known."""
+    requirements_text = requirements_text or job.prompt
     callbacks.on_status(Job.Status.PLANNING, 'Executive agents are planning the build')
     record_description(
         job,
@@ -261,7 +274,7 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
         message='Executive agents are aligning on the implementation plan.',
     )
 
-    history = run_executive_flow(job.prompt)
+    history = run_executive_flow(requirements_text)
     for idx, entry in enumerate(history, start=1):
         record_description(
             job,
@@ -273,9 +286,9 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
 
     summary_content = _extract_summary(history)
     prd_renderer = get_prd_renderer()
-    prd_content = prd_renderer.render_prd(job.prompt, history, project_name=str(job.id))
+    prd_content = prd_renderer.render_prd(requirements_text, history, project_name=str(job.id))
     spec = {
-        'requirements': job.requirements_summary or job.prompt,
+        'requirements': requirements_text,
         'discussion': history,
         'summary': summary_content,
     }
@@ -298,6 +311,62 @@ def run_executive_pipeline(job: Job, callbacks: 'JobCallbacks') -> None:
     )
 
     generate_tickets_for_job(job, callbacks)
+
+
+def run_continuation_pipeline(job: Job, continuation_text: str, callbacks: 'JobCallbacks') -> None:
+    """Re-run the executive/ticketing/build pipeline for follow-up requirements."""
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Continuation',
+        message='Processing follow-up request for new requirements.',
+    )
+
+    record_chat_message(
+        job,
+        role=JobMessage.Role.USER,
+        sender=job.owner.name or job.owner.email,
+        content=continuation_text,
+        metadata={'stage': 'continuation', 'type': 'user_followup'},
+        broadcast=False,
+    )
+
+    try:
+        summary = summarize_followup_requirements(continuation_text)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception('Failed to summarize continuation for job %s: %s', job.id, exc)
+        raise RuntimeError('Failed to summarize continuation request') from exc
+
+    if not summary.strip():
+        summary = continuation_text.strip()
+    record_chat_message(
+        job,
+        role=JobMessage.Role.SYSTEM,
+        sender='Business Analyst',
+        content=f'REQUIREMENTS_SUMMARY: {summary}',
+        metadata={'stage': 'continuation', 'type': 'summary'},
+    )
+
+    state = job.conversation_state or {}
+    if 'initial_summary' not in state and (job.requirements_summary or job.prompt):
+        state['initial_summary'] = job.requirements_summary or job.prompt
+    history = state.setdefault('continuations', [])
+    history.append(
+        {
+            'requested_at': timezone.now().isoformat(),
+            'request': continuation_text,
+            'summary': summary,
+        }
+    )
+    state.setdefault('continuation', {}).setdefault('in_progress', True)
+
+    job.prompt = summary
+    job.requirements_summary = summary
+    job.conversation_state = state
+    job.save(update_fields=['prompt', 'requirements_summary', 'conversation_state', 'updated_at'])
+
+    set_job_status(str(job.id), Job.Status.QUEUED, 'Continuation queued')
+    run_executive_pipeline(job, callbacks, requirements_text=summary)
 
 
 def generate_tickets_for_job(job: Job, callbacks: 'JobCallbacks') -> int:
@@ -482,6 +551,41 @@ def record_description(job: Job, *, agent: str, stage: str, message: str) -> Job
     )
 
 
+def mark_continuation_enqueued(job: Job) -> bool:
+    """
+    Flag a job as having an in-flight continuation request.
+    Returns False if another continuation is already running.
+    """
+    with transaction.atomic():
+        locked_job = Job.objects.select_for_update().get(id=job.id)
+        state = locked_job.conversation_state or {}
+        continuation_meta = state.get('continuation') or {}
+        if continuation_meta.get('in_progress'):
+            return False
+        continuation_meta['in_progress'] = True
+        continuation_meta['queued_at'] = timezone.now().isoformat()
+        state['continuation'] = continuation_meta
+        locked_job.conversation_state = state
+        locked_job.save(update_fields=['conversation_state', 'updated_at'])
+    return True
+
+
+def clear_continuation_flag(job_id: str) -> None:
+    """Release the continuation in-progress flag (best effort)."""
+    with transaction.atomic():
+        job = Job.objects.select_for_update().get(id=job_id)
+        state = job.conversation_state or {}
+        continuation_meta = state.get('continuation') or {}
+        continuation_meta.pop('queued_at', None)
+        continuation_meta.pop('in_progress', None)
+        if continuation_meta:
+            state['continuation'] = continuation_meta
+        elif 'continuation' in state:
+            state.pop('continuation')
+        job.conversation_state = state
+        job.save(update_fields=['conversation_state', 'updated_at'])
+
+
 @dataclass
 class JobCallbacks:
     """Adapter passed to the orchestrator to mutate state safely."""
@@ -565,6 +669,7 @@ class TicketBuildCallbacks:
 
     def on_error(self, message: str) -> None:
         fail_job(self.job_id, message=message)
+        _cleanup_job_container(self.job_id)
 
     def on_complete(self, message: str = 'Implementation complete') -> None:
         if self.has_failures:
@@ -572,4 +677,5 @@ class TicketBuildCallbacks:
             fail_job(self.job_id, message=failure_msg)
         else:
             set_job_status(self.job_id, Job.Status.BUILD_DONE, message)
+        _cleanup_job_container(self.job_id)
 

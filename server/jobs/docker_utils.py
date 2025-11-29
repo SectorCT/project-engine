@@ -51,24 +51,42 @@ def resolve_container(project_id: Optional[str]) -> docker.models.containers.Con
     """
     Return the Docker container for the project/job.
 
-    Falls back to the default builder container if the job-specific container
-    does not exist yet (current behaviour of the builder).
+    When a specific project_id is supplied we require that container to exist so
+    users cannot accidentally read another job's workspace. Passing None
+    explicitly requests the shared builder container.
     """
     client = get_docker_client()
-    search_order: List[str] = []
-    if project_id:
-        search_order.append(get_container_name(project_id))
-    search_order.append(get_container_name(None))
+    container_name = get_container_name(project_id) if project_id else get_container_name(None)
+    try:
+        return client.containers.get(container_name)
+    except NotFound as exc:
+        raise ContainerNotFound(str(exc)) from exc
 
-    last_error: Optional[Exception] = None
-    for name in search_order:
-        try:
-            container = client.containers.get(name)
-            return container
-        except NotFound as exc:
-            last_error = exc
-            continue
-    raise ContainerNotFound(str(last_error))
+
+def stop_container(project_id: Optional[str]) -> None:
+    """
+    Stop and remove the container associated with the given project/job ID.
+
+    This is best-effort: failures are swallowed so API calls don't crash if Docker
+    is unreachable.
+    """
+    client = get_docker_client()
+    container_name = get_container_name(project_id)
+    try:
+        container = client.containers.get(container_name)
+    except NotFound:
+        return
+
+    try:
+        container.stop(timeout=10)
+    except APIError:
+        pass
+
+    try:
+        container.remove(force=True)
+    except APIError:
+        # Nothing else we can do; leave container as-is.
+        return
 
 
 def ensure_container_running(container: docker.models.containers.Container) -> None:

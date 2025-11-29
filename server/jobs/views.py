@@ -1,14 +1,19 @@
+import logging
+
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .artifact_service import FileContentError, FileStructureError, get_file_structure, read_file
+from .docker_utils import stop_container
 from .models import App, Job, JobMessage, Ticket
 from .serializers import (
     AppSerializer,
+    JobContinueSerializer,
     JobCreateSerializer,
     JobDetailSerializer,
     JobMessageCreateSerializer,
@@ -16,9 +21,19 @@ from .serializers import (
     JobSerializer,
     JobUpdateSerializer,
     TicketSerializer,
+    TicketWriteSerializer,
 )
-from .services import finalize_requirements, initialize_requirements_collection, record_chat_message, record_description
-from .tasks import run_job_task
+from .services import (
+    finalize_requirements,
+    initialize_requirements_collection,
+    mark_continuation_enqueued,
+    record_chat_message,
+    record_description,
+)
+from .tasks import continue_job_task, run_job_task
+
+
+logger = logging.getLogger(__name__)
 
 
 class JobViewSet(
@@ -75,6 +90,10 @@ class JobViewSet(
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        try:
+            stop_container(str(instance.id))
+        except Exception:  # pragma: no cover - best effort cleanup
+            logger.warning('Failed to stop container for job %s during delete', instance.id, exc_info=True)
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -121,6 +140,34 @@ class JobViewSet(
         except FileContentError as exc:
             return self._artifact_error_response(exc)
         return Response(payload)
+
+    @action(detail=True, methods=('post',), url_path='continue')
+    def continue_job(self, request, id=None):
+        job = self.get_object()
+        serializer = JobContinueSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        busy_statuses = {
+            Job.Status.COLLECTING,
+            Job.Status.QUEUED,
+            Job.Status.PLANNING,
+            Job.Status.TICKETING,
+            Job.Status.BUILDING,
+        }
+        if job.status in busy_statuses:
+            return Response(
+                {'detail': 'Job is currently running and cannot be continued yet.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not mark_continuation_enqueued(job):
+            return Response(
+                {'detail': 'A continuation request is already in progress for this job.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        continue_job_task.delay(str(job.id), serializer.validated_data['requirements'])
+        return Response({'detail': 'Continuation queued.'}, status=status.HTTP_202_ACCEPTED)
 
 class AppViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = (IsAuthenticated,)
@@ -180,17 +227,6 @@ class JobMessageViewSet(
         )
 
 
-from .serializers import (
-    AppSerializer,
-    JobCreateSerializer,
-    JobDetailSerializer,
-    JobMessageCreateSerializer,
-    JobMessageSerializer,
-    JobSerializer,
-    JobUpdateSerializer,
-    TicketSerializer,
-    TicketWriteSerializer,
-)
 class TicketViewSet(
     mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
@@ -212,3 +248,29 @@ class TicketViewSet(
         if self.action in ('create', 'update', 'partial_update'):
             return TicketWriteSerializer
         return TicketSerializer
+
+    LOCKED_STATUSES = {
+        Job.Status.COLLECTING,
+        Job.Status.QUEUED,
+        Job.Status.PLANNING,
+        Job.Status.TICKETING,
+        Job.Status.BUILDING,
+    }
+
+    def _ensure_mutable(self, job: Job) -> None:
+        if job.status in self.LOCKED_STATUSES:
+            raise ValidationError('Tickets cannot be modified while the job is running.')
+
+    def perform_create(self, serializer):
+        job = serializer.context['job']
+        self._ensure_mutable(job)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        job = serializer.instance.job
+        self._ensure_mutable(job)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._ensure_mutable(instance.job)
+        instance.delete()
