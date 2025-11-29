@@ -1,13 +1,112 @@
 import sys
 import os
+import time
 from typing import List, Dict
 from agents.pm_agent import PMAgent
+from agents.coder_agent import CoderAgent
 from systems.ticket_system import TicketSystem
+from systems.docker_env import DockerEnv
 from config.settings import settings
 
+def build_phase():
+    """
+    The Build Phase:
+    1. Spin up Docker Environment
+    2. Iterate through tickets
+    3. Coder Agent resolves them using Cursor CLI
+    """
+    print("\n--- Starting Build Phase ---")
+    
+    # Initialize Systems
+    ticket_system = TicketSystem()
+    
+    # 1. Get all "todo" tickets
+    all_tickets = ticket_system.get_tickets()
+    
+    # Filter out Epics - we only build Stories/Tasks
+    todo_tickets = [
+        t for t in all_tickets 
+        if t.get('status') == 'todo' and t.get('type') != 'epic'
+    ]
+    
+    if not todo_tickets:
+        print("No 'todo' tickets found (excluding Epics). Nothing to build.")
+        return
+
+    print(f"Found {len(todo_tickets)} tickets to resolve.")
+
+    # 2. Initialize Docker Env
+    workspace_path = os.getcwd() # Not used for copying, but kept for compatibility
+    docker_env = DockerEnv(workspace_path)
+    
+    try:
+        docker_env.build_image()
+        docker_env.start_container()
+        
+        # 3. Initialize Coder Agent
+        coder_agent = CoderAgent()
+        
+        # 4. Loop through tickets and execute cursor commands
+        for ticket in todo_tickets:
+            # Look up parent context if available
+            parent_context = ""
+            parent_id = ticket.get("parent_id")
+            if parent_id:
+                # Find the epic in all_tickets
+                # Check both mongo string ID and original ID formats just in case
+                parent_epic = next((t for t in all_tickets if str(t.get('_id')) == str(parent_id) or str(t.get('id')) == str(parent_id)), None)
+                if parent_epic:
+                     parent_context = f"Title: {parent_epic.get('title')}\nDescription: {parent_epic.get('description')}"
+
+            success = coder_agent.resolve_ticket(ticket, docker_env, parent_context)
+            
+            # Status updates are commented out for now
+            # if success:
+            #     # Mark as done
+            #     if ticket_system.use_mongo:
+            #         from bson.objectid import ObjectId
+            #         try:
+            #             ticket_system.collection.update_one(
+            #                 {"_id": ObjectId(ticket['_id'])},
+            #                 {"$set": {"status": "done"}}
+            #             )
+            #         except:
+            #              ticket_system.collection.update_one(
+            #                 {"id": ticket['id']},
+            #                 {"$set": {"status": "done"}}
+            #             )
+            #     else:
+            #         # Local JSON update
+            #         import json
+            #         with open(ticket_system.local_file, 'r') as f:
+            #             data = json.load(f)
+            #         for t in data:
+            #             if t.get('id') == ticket.get('id') or t.get('_id') == ticket.get('_id'):
+            #                 t['status'] = 'done'
+            #                 break
+            #         with open(ticket_system.local_file, 'w') as f:
+            #             json.dump(data, f, indent=2)
+            #                 
+            #     print(f"Ticket {ticket.get('title')} marked as DONE.")
+            # else:
+            #     print(f"Ticket {ticket.get('title')} FAILED. Skipping.")
+                
+    finally:
+        # Cleanup
+        # We explicitly do NOT stop the container as requested
+        print("\nKeeping container running as requested.")
+        print("You can inspect the container with: docker exec project_engine_builder_container ls -la /app")
+        # docker_env.stop_container()
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--build":
+        build_phase()
+        return
+
     if len(sys.argv) < 2:
         print("Usage: python build.py <path_to_prd.md>")
+        print("       python build.py --build")
         return
 
     prd_path = sys.argv[1]
@@ -82,20 +181,6 @@ def main():
     temp_id_to_db_id = {}
 
     # First pass: Create tickets to get DB IDs
-    # We have to do this carefully if dependencies must exist before creation.
-    # But usually dependencies are just string references. 
-    # We will insert them, then update dependencies? 
-    # OR, simpler: Insert them all, collect map, then update the dependencies in the DB?
-    # Let's do a 2-pass approach:
-    # 1. Create all tickets (without dependencies or with raw temp IDs)
-    # 2. Update tickets with real dependency IDs
-    
-    # Actually, simpler: PM gives us a list. We iterate. 
-    # If dependency "1" is needed for "2", we need "1" ID.
-    # If the list is sorted by dependencies, we are good. If not, we might need 2 passes.
-    
-    # Let's blindly create them all first to get IDs.
-    
     final_tickets = []
     
     for idx, t in enumerate(tickets_data):
@@ -192,5 +277,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
