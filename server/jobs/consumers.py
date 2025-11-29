@@ -36,8 +36,20 @@ class JobConsumer(AsyncJsonWebsocketConsumer):
         logger.info(f"WebSocket connection accepted for job {self.job_id} by user {user.id}")
 
     async def disconnect(self, close_code):
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        
+        job_id = getattr(self, 'job_id', 'unknown')
+        logger.info(f"WebSocket disconnecting for job {job_id}, close_code: {close_code}")
+        
         if hasattr(self, 'group_name'):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            try:
+                await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            except Exception as e:
+                logger.error(f"Error discarding group {self.group_name}: {e}")
+        else:
+            logger.warning(f"WebSocket disconnecting without group_name, close_code: {close_code}")
 
     async def receive(self, text_data=None, bytes_data=None, **kwargs):
         if text_data is None:

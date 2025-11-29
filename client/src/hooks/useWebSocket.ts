@@ -128,6 +128,12 @@ export function useWebSocket({
         setIsConnected(false);
         onClose?.();
 
+        // Don't reconnect on normal closure (1000) or authentication errors
+        if (event.code === 1000 && event.wasClean) {
+          console.log('WebSocket closed normally');
+          return;
+        }
+
         // Don't reconnect on authentication errors (403) or unauthorized (4001, 4003)
         if (event.code === 4003 || event.code === 4001 || event.code === 1008) {
           console.error('WebSocket connection closed due to authentication/authorization error. Please check your token.');
@@ -183,7 +189,8 @@ export function useWebSocket({
     return () => {
       disconnect();
     };
-  }, [enabled, jobId, connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, jobId]); // Only depend on enabled and jobId to avoid recreating connections
 
   return {
     isConnected,
