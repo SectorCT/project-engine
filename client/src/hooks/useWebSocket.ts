@@ -95,14 +95,21 @@ export function useWebSocket({
     }
 
     try {
-      console.log('Connecting to WebSocket:', wsUrl.replace(token, '***'));
+      // Only log in development to reduce console noise
+      if (import.meta.env.DEV) {
+        console.log('Connecting to WebSocket:', wsUrl.replace(token, '***'));
+      }
       const ws = new WebSocket(wsUrl);
 
-      // Set Authorization header if possible (some browsers support this)
-      // Note: WebSocket API doesn't support custom headers in browser, so we rely on query param
+      // Track if we've successfully connected at least once
+      let hasConnectedOnce = false;
 
       ws.onopen = () => {
+        hasConnectedOnce = true;
+        // Only log in development to reduce console noise
+        if (import.meta.env.DEV) {
         console.log('WebSocket connected');
+        }
         setIsConnected(true);
         reconnectAttempts.current = 0;
         onOpen?.();
@@ -119,18 +126,22 @@ export function useWebSocket({
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        // Only log errors if we've connected before (indicates a real problem)
+        // Errors during initial connection/page load are expected and can be ignored
+        if (hasConnectedOnce && import.meta.env.DEV) {
+          console.warn('WebSocket error after connection:', error);
+        }
+        // Still call onError callback for components that need to handle it
         onError?.(error);
       };
 
       ws.onclose = (event) => {
-        console.log('WebSocket disconnected', { code: event.code, reason: event.reason, wasClean: event.wasClean });
         setIsConnected(false);
         onClose?.();
 
-        // Don't reconnect on normal closure (1000) or authentication errors
+        // Don't reconnect on normal closure (1000) - this is expected
         if (event.code === 1000 && event.wasClean) {
-          console.log('WebSocket closed normally');
+          // Normal closure, no need to log or reconnect
           return;
         }
 
@@ -141,12 +152,20 @@ export function useWebSocket({
           return;
         }
 
+        // Code 1006 (abnormal closure) during page load/navigation is normal - don't log it
+        if (event.code === 1006 && !enabled) {
+          // Component is unmounting or disabled, this is expected
+          return;
+        }
+
         // Attempt to reconnect for other errors
         if (enabled && reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current += 1;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
           reconnectTimeoutRef.current = window.setTimeout(() => {
+            if (import.meta.env.DEV) {
             console.log(`Reconnecting... (attempt ${reconnectAttempts.current})`);
+            }
             connect();
           }, delay);
         } else if (reconnectAttempts.current >= maxReconnectAttempts) {

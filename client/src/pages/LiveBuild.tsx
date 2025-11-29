@@ -132,8 +132,10 @@ export default function LiveBuild() {
       case 'stageUpdate':
         // Chat message from user or agent
         if (message.role && message.content) {
+          // Use a more unique ID to avoid duplicate key warnings
+          const uniqueId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const newMessage: JobMessage = {
-            id: `temp-${Date.now()}`,
+            id: uniqueId,
             role: message.role,
             sender: message.sender || '',
             content: message.content,
@@ -167,8 +169,10 @@ export default function LiveBuild() {
       case 'agentDialogue':
         // Executive agent step (CEO/CTO/Secretary)
         if (message.agent && message.message) {
+          // Use a more unique ID to avoid duplicate key warnings
+          const uniqueId = `temp-step-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const newStep: JobStep = {
-            id: `temp-${Date.now()}`,
+            id: uniqueId,
             agent_name: message.agent,
             message: message.message,
             order: message.order || steps.length + 1,
@@ -221,6 +225,32 @@ export default function LiveBuild() {
 
   const handleSendMessage = (content: string) => {
     if (isConnected && sendMessage) {
+      // Optimistically add user's message to the UI immediately
+      // Use a more unique ID to avoid duplicate key warnings
+      const timestamp = new Date().toISOString();
+      const uniqueId = `temp-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const userMessage: JobMessage = {
+        id: uniqueId,
+        role: 'user',
+        sender: 'You', // The server will use the actual user name/email
+        content: content,
+        metadata: {},
+        created_at: timestamp,
+      };
+      
+      setMessages((prev) => {
+        // Check if message already exists to avoid duplicates
+        // We check by content and recent timestamp to avoid showing the same message twice
+        const exists = prev.some(
+          (msg) => msg.content === content && 
+                   msg.role === 'user' && 
+                   Math.abs(new Date(msg.created_at).getTime() - new Date(timestamp).getTime()) < 2000
+        );
+        if (exists) return prev;
+        return [...prev, userMessage];
+      });
+      
+      // Send message via WebSocket
       sendMessage({ kind: 'chat', content });
     } else {
       toast.error('WebSocket not connected');
@@ -388,7 +418,7 @@ export default function LiveBuild() {
 
       {/* Main Grid Layout */}
       <div className="flex-1 p-1 overflow-auto">
-        <div className="max-w-[1920px] mx-auto grid grid-cols-12 gap-1">
+        <div className="max-w-[1920px] mx-auto grid grid-cols-12 gap-1 h-full pb-8">
           {/* Top Row: Architecture (left) and Live Preview (right) */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -417,7 +447,7 @@ export default function LiveBuild() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-4 hidden md:block"
+            className="col-span-12 md:col-span-4 hidden md:block flex h-[550px]"
           >
             <StatusPanel job={job} steps={steps} />
           </motion.div>
@@ -425,7 +455,7 @@ export default function LiveBuild() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-8"
+            className="col-span-12 md:col-span-8 flex h-[550px]"
           >
             <AgentPanel
               messages={messages}
