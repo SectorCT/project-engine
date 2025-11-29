@@ -1,0 +1,121 @@
+Router Server Backend Implementation Specification
+
+This document outlines the requirements for the Express (or equivalent) Router Server, which sits immediately behind Nginx. Nginx handles SSL termination and is responsible for rewriting the URL path to make the routing target explicit.
+
+The core function of this backend is to read the rewritten URI, identify the target Project ID, look up the final destination (IP:Port), and forward the request.
+
+1. Request Structure Received from Nginx
+
+Crucially, Nginx has been configured to transform the request path before forwarding it to this server.
+
+When a user hits https://[projectId].router.xyz.com/path/to/resource, our server will receive an internal HTTP request (from Nginx) with the following structure:
+
+A. Rewritten Path
+
+The Project ID is now embedded directly in the path, making it easy to extract using standard routing frameworks.
+
+Received URI Pattern: /backends/[projectId]/[originalPath]
+
+Example Input: /backends/abc/users/123?q=test
+
+B. Standard Headers
+
+The following headers are critical and are forwarded by Nginx:
+
+Header Name
+
+Value
+
+Purpose
+
+Host
+
+Internal IP:Port (e.g., 127.0.0.1:3000)
+
+Standard proxy host (less useful than X-Forwarded-Host)
+
+X-Forwarded-Host
+
+[projectId].router.xyz.com
+
+The original public domain requested by the client.
+
+X-Forwarded-Proto
+
+https
+
+Indicates the original client connection was secure.
+
+X-Real-IP
+
+<Client IP Address>
+
+The actual IP address of the user who made the request. MUST be preserved for logging and rate limiting.
+
+2. Implementation Requirements (Express/Node.js)
+
+The implementation should use a reverse proxy mechanism (e.g., http-proxy-middleware or similar) to forward the request to the final Project Backend.
+
+A. Project ID Extraction
+
+The server must utilize its routing library to extract the projectId from the path.
+
+Required Logic:
+
+Set up a top-level route handler to capture the project ID:
+
+// Example Express route handler
+app.use('/backends/:projectId/*', (req, res, next) => {
+    const projectId = req.params.projectId; // Extracts 'abc'
+    // ... proceed with lookup and forwarding ...
+});
+
+
+
+The projectId variable will contain the unique identifier (e.g., abc, project-beta, etc.).
+
+B. Destination Lookup
+
+Once the projectId is known, the server must determine the destination address.
+
+Required Action: Use the projectId to query a local cache, database, or configuration file to retrieve the internal IP address and port of the final Project Backend.
+
+Input: projectId (e.g., 'abc')
+
+Output: targetAddress (e.g., 'http://10.0.1.5:8080')
+
+C. Reverse Proxy Forwarding
+
+The request must be forwarded to the targetAddress.
+
+Key Forwarding Requirements:
+
+Preserve Original Path: The request path forwarded to the Project Backend must be stripped of the /backends/[projectId] prefix.
+
+Example: Forward /backends/abc/users/123?q=test to http://10.0.1.5:8080/users/123?q=test.
+
+Preserve ALL Headers: The reverse proxy MUST faithfully pass ALL incoming headers (including but not limited to Authorization, Cookie, User-Agent, Accept-Language, X-Forwarded-*, and X-Real-IP) to the Project Backend. This is essential for features like session management, content negotiation, and client context/device detection to function correctly at the destination service level.
+
+D. Error Handling
+
+If a projectId is extracted but no matching targetAddress is found, the server must respond with an appropriate error.
+
+Required Response: HTTP 404 Not Found, or HTTP 503 Service Unavailable, with a concise error message in the body (e.g., "Project Backend not found or unavailable.").
+
+3. Workflow Summary
+
+Router Server receives request: /backends/abc/posts/1
+
+Router Server extracts projectId (abc).
+
+Router Server looks up destination for abc (e.g., 10.0.1.5:8080).
+
+Router Server initializes reverse proxy.
+
+Router Server forwards request path /posts/1 to http://10.0.1.5:8080/posts/1.
+
+Project Backend processes request and returns response.
+
+Router Server sends the response back to Nginx, which finally sends it back to the client.
+
+The Project Backend MUST NOT be aware of the /backends/abc prefix. It should believe it is receiving a direct request for /posts/1.

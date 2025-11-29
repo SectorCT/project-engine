@@ -4,16 +4,26 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 
 
 class UserManager(BaseUserManager):
-    def create_user(self, email, username, password=None, **extra_fields):
+    def create_user(self, email, username=None, password=None, **extra_fields):
         if not email:
             raise ValueError("The Email field must be set")
 
         if not username:
-            raise ValueError("The username field must be set")
+            base_username = email.split('@')[0]
+            username = base_username
+            # Ensure username is unique by appending a number if needed
+            counter = 1
+            while self.model.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
 
         email = self.normalize_email(email)
         user = self.model(email=email, username=username, **extra_fields)
-        user.set_password(password)
+        if password:
+            user.set_password(password)
+        else:
+            # For OAuth users without password, set an unusable password
+            user.set_unusable_password()
         user.save(using=self._db)
         return user
 

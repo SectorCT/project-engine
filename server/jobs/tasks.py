@@ -4,7 +4,14 @@ from celery import shared_task
 
 from .agent_client import run_orchestrator
 from .models import Job
-from .services import JobCallbacks, TicketBuildCallbacks, fail_job, set_job_status
+from .services import (
+    JobCallbacks,
+    TicketBuildCallbacks,
+    clear_continuation_flag,
+    fail_job,
+    run_continuation_pipeline,
+    set_job_status,
+)
 from .agent_loop_bridge import run_ticket_builder
 
 logger = logging.getLogger(__name__)
@@ -63,4 +70,27 @@ def run_ticket_builder_task(job_id: str) -> None:
     except Exception as exc:  # pragma: no cover
         logger.exception('Ticket builder failed for job %s: %s', job_id, exc)
         callbacks.on_error(f'Ticket execution failed: {exc}')
+
+
+@shared_task
+def continue_job_task(job_id: str, continuation_text: str) -> None:
+    try:
+        job = Job.objects.get(id=job_id)
+    except Job.DoesNotExist:
+        logger.warning('Continuation requested for missing job %s', job_id)
+        return
+
+    callbacks = JobCallbacks(job_id=str(job.id))
+    try:
+        run_continuation_pipeline(job, continuation_text, callbacks)
+    except Exception as exc:  # pragma: no cover
+        message = f'Continuation pipeline failed: {exc}'
+        logger.exception(message)
+        fail_job(str(job.id), message=message)
+        raise
+    finally:
+        try:
+            clear_continuation_flag(str(job.id))
+        except Exception:  # pragma: no cover - best effort cleanup
+            logger.warning('Failed to clear continuation flag for job %s', job.id)
 

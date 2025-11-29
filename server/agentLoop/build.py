@@ -108,14 +108,14 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
     
     # 3. Get project structure
     # 4. Initialize Docker Env
-    workspace_path = os.getcwd() # Not used for copying, but kept for compatibility
-    docker_env = DockerEnv(workspace_path)
+    workspace_path = os.getcwd()  # Not used for copying, but kept for compatibility
+    docker_env = DockerEnv(workspace_path, project_id=job_id)
     
     try:
         cb.stage("Environment", "Building Docker image")
         docker_env.build_image()
         cb.stage("Environment", "Starting Docker container")
-        docker_env.start_container()
+        docker_env.start_container(has_backend=has_backend)
         
         # 5. Initialize project structure in Docker
         cb.stage("Environment", "Initializing project structure")
@@ -169,6 +169,11 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
             
             if success:
                 ticket['status'] = 'done'
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), 'done')
+                    except Exception as exc:
+                        print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
                 cb.ticket(
                     ticket,
                     'done',
@@ -178,6 +183,11 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
                 print(f"Ticket {ticket.get('title')} marked as DONE.")
             else:
                 ticket['status'] = 'failed'
+                if ticket_id:
+                    try:
+                        ticket_system.update_ticket_status(str(ticket_id), 'failed', check_epic_completion=False)
+                    except Exception as exc:
+                        print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
                 cb.ticket(
                     ticket,
                     'failed',
@@ -195,7 +205,7 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
         # We explicitly do NOT stop the container as requested
         print("\nKeeping container running as requested.")
         print("Container port 3000 is exposed - frontend accessible at http://localhost:3000")
-        print("You can inspect the container with: docker exec project_engine_builder_container ls -la /app")
+        print(f"You can inspect the container with: docker exec {docker_env.container_name} ls -la /app")
         # docker_env.stop_container()
 
 
@@ -235,7 +245,7 @@ def init_structure_only():
         docker_env.build_image()
         
         print("Starting Docker container...")
-        docker_env.start_container()
+        docker_env.start_container(has_backend=has_backend)
         
         print("Initializing project structure in Docker...")
         ProjectInitializer.init_project(project_structure, docker_env)
@@ -252,15 +262,15 @@ def init_structure_only():
         print("Container is running with port 3000 exposed.")
         print("Frontend will be accessible at: http://localhost:3000")
         print("\nYou can inspect the container with:")
-        print("  docker exec project_engine_builder_container ls -la /app")
-        print("  docker exec project_engine_builder_container find /app -type f")
+        print(f"  docker exec {docker_env.container_name} ls -la /app")
+        print(f"  docker exec {docker_env.container_name} find /app -type f")
         print("\nTo run npm commands inside the container:")
-        print("  docker exec project_engine_builder_container npm <command>")
-        print("  Example: docker exec project_engine_builder_container npm run dev")
+        print(f"  docker exec {docker_env.container_name} npm <command>")
+        print(f"  Example: docker exec {docker_env.container_name} npm run dev")
         print("  (Then access http://localhost:3000 in your browser)")
         print("\nTo stop the container:")
-        print("  docker stop project_engine_builder_container")
-        print("  docker rm project_engine_builder_container")
+        print(f"  docker stop {docker_env.container_name}")
+        print(f"  docker rm {docker_env.container_name}")
         
     except Exception as e:
         print(f"❌ Error during initialization: {e}")
