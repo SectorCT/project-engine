@@ -47,11 +47,20 @@ const Ticket = mongoose.model('Ticket', ticketSchema, 'tickets'); // Collection 
 app.get('/api/tickets', async (req, res) => {
     try {
         const tickets = await Ticket.find().lean();
-        // Map _id to id for frontend consistency if needed, 
-        // but usually frontend can handle _id
+        // Convert ObjectIds to strings for frontend
         const formattedTickets = tickets.map(t => ({
             ...t,
-            id: t._id.toString()
+            id: t._id.toString(),
+            _id: t._id.toString(), // Keep _id as string too
+            // Convert dependencies array from ObjectIds to strings
+            dependencies: (t.dependencies || []).map(dep => {
+                if (dep && typeof dep === 'object' && dep.toString) {
+                    return dep.toString();
+                }
+                return String(dep);
+            }),
+            // Convert parent_id from ObjectId to string
+            parent_id: t.parent_id ? (typeof t.parent_id === 'object' && t.parent_id.toString ? t.parent_id.toString() : String(t.parent_id)) : null
         }));
         res.json(formattedTickets);
     } catch (err) {

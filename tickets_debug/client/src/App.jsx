@@ -34,27 +34,40 @@ function App() {
     return Array.from(set);
   }, [tickets]);
 
+  // Helper to normalize IDs for comparison (handles ObjectId, string, etc.)
+  // Helper to normalize IDs for comparison (handles ObjectId, string, etc.)
+  const normalizeId = (id) => {
+    if (!id) return null;
+    // If it's an object with $oid or toString, extract the string
+    if (typeof id === 'object') {
+      if (id.$oid) return String(id.$oid);
+      if (id.toString) return String(id.toString());
+      return null;
+    }
+    return String(id);
+  };
+
   const { groupedTickets, orphans } = useMemo(() => {
     const epics = tickets.filter(t => t.type === 'epic');
     const stories = tickets.filter(t => t.type === 'story');
     
     // Map stories to epics using parent_id
     const epicMap = epics.map(epic => {
-       // Logic changed here: Look for parent_id in stories matching the Epic's ID
-       const childStories = stories.filter(story => 
-          // Check if story.parent_id matches epic.id or epic._id (string comparison)
-          String(story.parent_id) === String(epic.id) || 
-          String(story.parent_id) === String(epic._id)
-       );
+       const epicId = normalizeId(epic.id || epic._id);
+       // Look for parent_id in stories matching the Epic's ID
+       const childStories = stories.filter(story => {
+          const storyParentId = normalizeId(story.parent_id);
+          return storyParentId && epicId && storyParentId === epicId;
+       });
        return { ...epic, children: childStories };
     });
 
     // Identify orphans: Stories that match NO epic in the map
-    const allChildIds = new Set(epicMap.flatMap(e => e.children.map(c => c.id || c._id)));
+    const allChildIds = new Set(epicMap.flatMap(e => e.children.map(c => normalizeId(c.id || c._id))));
     // An orphan is a story that is NOT in any child list found above
     const orphanStories = stories.filter(s => {
-        const id = s.id || s._id;
-        return !allChildIds.has(id);
+        const id = normalizeId(s.id || s._id);
+        return id && !allChildIds.has(id);
     });
 
     return { groupedTickets: epicMap, orphans: orphanStories };
@@ -81,9 +94,23 @@ function App() {
 
   const getTicketTitle = (id) => {
     if (!id) return 'Unknown';
-    const idStr = String(id);
-    const t = tickets.find(ticket => String(ticket.id) === idStr || String(ticket._id) === idStr);
+    const idStr = normalizeId(id);
+    if (!idStr) return 'Unknown';
+    const t = tickets.find(ticket => {
+      const ticketId = normalizeId(ticket.id || ticket._id);
+      return ticketId === idStr;
+    });
     return t ? t.title : `...${idStr.slice(-6)}`;
+  };
+
+  const getTicketById = (id) => {
+    if (!id) return null;
+    const idStr = normalizeId(id);
+    if (!idStr) return null;
+    return tickets.find(ticket => {
+      const ticketId = normalizeId(ticket.id || ticket._id);
+      return ticketId === idStr;
+    });
   };
 
   const getStatusColor = (status) => {
@@ -155,6 +182,7 @@ function App() {
                     epic={epic} 
                     getTicketTitle={getTicketTitle}
                     getStatusColor={getStatusColor}
+                    getTicketById={getTicketById}
                 />
             ))}
 
@@ -168,7 +196,8 @@ function App() {
                                 key={t.id || t._id} 
                                 ticket={t} 
                                 getTicketTitle={getTicketTitle} 
-                                getStatusColor={getStatusColor} 
+                                getStatusColor={getStatusColor}
+                                getTicketById={getTicketById}
                             />
                         ))}
                     </div>
@@ -185,7 +214,7 @@ function App() {
   );
 }
 
-const EpicAccordion = ({ epic, getTicketTitle, getStatusColor }) => {
+const EpicAccordion = ({ epic, getTicketTitle, getStatusColor, getTicketById }) => {
     const [isOpen, setIsOpen] = useState(true); // Default open
 
     return (
@@ -225,7 +254,8 @@ const EpicAccordion = ({ epic, getTicketTitle, getStatusColor }) => {
                                     key={story.id || story._id} 
                                     ticket={story} 
                                     getTicketTitle={getTicketTitle} 
-                                    getStatusColor={getStatusColor} 
+                                    getStatusColor={getStatusColor}
+                                    getTicketById={getTicketById}
                                     isChild={true}
                                 />
                             ))}
@@ -252,12 +282,21 @@ const FilterSelect = ({ label, value, onChange, options }) => (
   </div>
 );
 
-const TicketCard = ({ ticket, getTicketTitle, getStatusColor, isChild = false }) => {
+const TicketCard = ({ ticket, getTicketTitle, getStatusColor, getTicketById, isChild = false }) => {
   const isEpic = ticket.type === 'epic';
   // If it's a child view, we style it slightly differently to fit better
   const typeColor = isEpic ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800';
   const date = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : 'Unknown Date';
   const idDisplay = String(ticket.id || ticket._id).slice(-6);
+  
+  // Get dependency names
+  const dependencies = ticket.dependencies || [];
+  const dependencyTitles = dependencies
+    .map(depId => {
+      const depTicket = getTicketById(depId);
+      return depTicket ? depTicket.title : null;
+    })
+    .filter(Boolean);
 
   return (
     <div className={`bg-white rounded border ${isChild ? 'shadow-sm border-gray-200' : 'shadow border-l-4 ' + (isEpic ? 'border-purple-500' : 'border-blue-500')} p-4 flex flex-col h-full hover:shadow-md transition-shadow duration-200`}>
@@ -271,6 +310,20 @@ const TicketCard = ({ ticket, getTicketTitle, getStatusColor, isChild = false })
       <h4 className="text-md font-bold text-gray-900 mb-1 leading-tight line-clamp-2">{ticket.title || 'Untitled'}</h4>
       
       <p className="text-gray-600 text-xs mb-3 flex-grow line-clamp-3">{ticket.description || 'No description provided.'}</p>
+      
+      {/* Dependencies */}
+      {dependencyTitles.length > 0 && (
+        <div className="mb-3 pt-2 border-t border-gray-100">
+          <div className="text-xs font-semibold text-gray-500 mb-1">Depends on:</div>
+          <div className="flex flex-wrap gap-1">
+            {dependencyTitles.map((title, idx) => (
+              <span key={idx} className="px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded text-[10px] border border-yellow-200">
+                {title}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
           <div className="flex items-center gap-2 text-xs text-gray-500">

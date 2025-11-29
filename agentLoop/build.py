@@ -6,14 +6,17 @@ from agents.pm_agent import PMAgent
 from agents.coder_agent import CoderAgent
 from systems.ticket_system import TicketSystem
 from systems.docker_env import DockerEnv
+from systems.project_initializer import ProjectInitializer
 from config.settings import settings
 
 def build_phase():
     """
     The Build Phase:
-    1. Spin up Docker Environment
-    2. Iterate through tickets
-    3. Coder Agent resolves them using Cursor CLI
+    1. Get project structure info from tickets or determine has_backend/has_frontend
+    2. Spin up Docker Environment
+    3. Initialize project structure in Docker
+    4. Iterate through tickets
+    5. Coder Agent resolves them using Cursor CLI
     """
     print("\n--- Starting Build Phase ---")
     
@@ -35,7 +38,23 @@ def build_phase():
 
     print(f"Found {len(todo_tickets)} tickets to resolve.")
 
-    # 2. Initialize Docker Env
+    # 2. Determine has_backend and has_frontend from tickets or use defaults
+    # For now, we'll check if there are backend/frontend related tickets
+    # In the future, this should come from the discussion/PRD
+    has_backend = any('backend' in str(t.get('title', '')).lower() or 'api' in str(t.get('title', '')).lower() or 'server' in str(t.get('title', '')).lower() for t in all_tickets)
+    has_frontend = any('frontend' in str(t.get('title', '')).lower() or 'ui' in str(t.get('title', '')).lower() or 'component' in str(t.get('title', '')).lower() for t in all_tickets)
+    
+    # Default to both if we can't determine
+    if not has_backend and not has_frontend:
+        has_backend = True
+        has_frontend = True
+    
+    print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
+    
+    # 3. Get project structure
+    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    
+    # 4. Initialize Docker Env
     workspace_path = os.getcwd() # Not used for copying, but kept for compatibility
     docker_env = DockerEnv(workspace_path)
     
@@ -43,10 +62,22 @@ def build_phase():
         docker_env.build_image()
         docker_env.start_container()
         
-        # 3. Initialize Coder Agent
+        # 5. Initialize project structure in Docker
+        ProjectInitializer.init_project(project_structure, docker_env)
+        
+        # 5.5. Install npm dependencies
+        print("\nInstalling npm dependencies...")
+        exit_code, output = docker_env.exec_run("npm install", workdir="/app")
+        if exit_code == 0:
+            print("✅ npm install completed successfully!")
+        else:
+            print(f"⚠️  npm install had issues (exit code: {exit_code})")
+            print(f"Output: {output[:500]}")
+        
+        # 6. Initialize Coder Agent
         coder_agent = CoderAgent()
         
-        # 4. Loop through tickets and execute cursor commands
+        # 7. Loop through tickets and execute cursor commands
         for ticket in todo_tickets:
             # Look up parent context if available
             parent_context = ""
@@ -58,7 +89,14 @@ def build_phase():
                 if parent_epic:
                      parent_context = f"Title: {parent_epic.get('title')}\nDescription: {parent_epic.get('description')}"
 
-            success = coder_agent.resolve_ticket(ticket, docker_env, parent_context)
+            # Pass full context to the coder agent
+            success = coder_agent.resolve_ticket(
+                ticket, 
+                docker_env, 
+                parent_context=parent_context,
+                project_structure=project_structure,
+                all_tickets=all_tickets
+            )
             
             # Status updates are commented out for now
             # if success:
@@ -95,18 +133,92 @@ def build_phase():
         # Cleanup
         # We explicitly do NOT stop the container as requested
         print("\nKeeping container running as requested.")
+        print("Container port 3000 is exposed - frontend accessible at http://localhost:3000")
         print("You can inspect the container with: docker exec project_engine_builder_container ls -la /app")
         # docker_env.stop_container()
+
+
+def init_structure_only():
+    """
+    Initialize project structure in Docker and stop.
+    Useful for testing the file structure creation.
+    """
+    print("\n--- Initializing Project Structure Only ---")
+    
+    # Initialize Systems
+    ticket_system = TicketSystem()
+    
+    # Get all tickets to determine structure
+    all_tickets = ticket_system.get_tickets()
+    
+    # Determine has_backend and has_frontend from tickets or use defaults
+    has_backend = any('backend' in str(t.get('title', '')).lower() or 'api' in str(t.get('title', '')).lower() or 'server' in str(t.get('title', '')).lower() for t in all_tickets)
+    has_frontend = any('frontend' in str(t.get('title', '')).lower() or 'ui' in str(t.get('title', '')).lower() or 'component' in str(t.get('title', '')).lower() for t in all_tickets)
+    
+    # Default to both if we can't determine
+    if not has_backend and not has_frontend:
+        has_backend = True
+        has_frontend = True
+    
+    print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
+    
+    # Get project structure
+    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    
+    # Initialize Docker Env
+    workspace_path = os.getcwd()
+    docker_env = DockerEnv(workspace_path)
+    
+    try:
+        print("Building Docker image...")
+        docker_env.build_image()
+        
+        print("Starting Docker container...")
+        docker_env.start_container()
+        
+        print("Initializing project structure in Docker...")
+        ProjectInitializer.init_project(project_structure, docker_env)
+        
+        print("\nInstalling npm dependencies...")
+        exit_code, output = docker_env.exec_run("npm install", workdir="/app")
+        if exit_code == 0:
+            print("✅ npm install completed successfully!")
+        else:
+            print(f"⚠️  npm install had issues (exit code: {exit_code})")
+            print(f"Output: {output[:500]}")
+        
+        print("\n✅ Project structure initialized successfully!")
+        print("Container is running with port 3000 exposed.")
+        print("Frontend will be accessible at: http://localhost:3000")
+        print("\nYou can inspect the container with:")
+        print("  docker exec project_engine_builder_container ls -la /app")
+        print("  docker exec project_engine_builder_container find /app -type f")
+        print("\nTo run npm commands inside the container:")
+        print("  docker exec project_engine_builder_container npm <command>")
+        print("  Example: docker exec project_engine_builder_container npm run dev")
+        print("  (Then access http://localhost:3000 in your browser)")
+        print("\nTo stop the container:")
+        print("  docker stop project_engine_builder_container")
+        print("  docker rm project_engine_builder_container")
+        
+    except Exception as e:
+        print(f"❌ Error during initialization: {e}")
+        raise
 
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--build":
         build_phase()
         return
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--init":
+        init_structure_only()
+        return
 
     if len(sys.argv) < 2:
         print("Usage: python build.py <path_to_prd.md>")
-        print("       python build.py --build")
+        print("       python build.py --build      # Full build (tickets + agent)")
+        print("       python build.py --init       # Initialize structure only (for testing)")
         return
 
     prd_path = sys.argv[1]
@@ -126,10 +238,23 @@ def main():
 
     # Initialize Systems
     ticket_system = TicketSystem()
+    
+    # Determine has_backend and has_frontend
+    # For now, we'll need to parse from PRD or get from user
+    # TODO: Extract from CTO/CEO discussion or PRD
+    # For now, defaulting to both - this should be determined from discussion
+    print("\nDetermining project structure requirements...")
+    has_backend = True  # TODO: Extract from discussion/PRD
+    has_frontend = True  # TODO: Extract from discussion/PRD
+    
+    # Get project structure before PM agent
+    project_structure = ProjectInitializer.get_project_structure(has_backend, has_frontend)
+    print(f"Project structure: backend={has_backend}, frontend={has_frontend}")
+    
     pm_agent = PMAgent()
 
     print("\nPM Agent is analyzing the PRD and generating tickets...")
-    tickets_data = pm_agent.generate_tickets(prd_content)
+    tickets_data = pm_agent.generate_tickets(prd_content, project_structure=project_structure)
 
     if not tickets_data:
         print("No tickets were generated. Please check the logs or try again.")
