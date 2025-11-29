@@ -55,11 +55,11 @@ export const TabbedViewPanel = ({
       <div className="flex items-center border-b border-border bg-background-elevated overflow-x-auto flex-shrink-0">
         <div className="flex items-center min-w-0 flex-1">
           {tabs.map((tab) => (
-            <button
+            <div
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors min-w-0",
+                "flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors min-w-0 cursor-pointer",
                 activeTabId === tab.id
                   ? "border-primary text-foreground bg-background"
                   : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -73,11 +73,12 @@ export const TabbedViewPanel = ({
                     onTabClose(tab.id);
                   }}
                   className="ml-1 hover:bg-muted rounded p-0.5"
+                  type="button"
                 >
                   <X className="w-3 h-3" />
                 </button>
               )}
-            </button>
+            </div>
           ))}
         </div>
 

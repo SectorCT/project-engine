@@ -70,6 +70,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
   const [inputValue, setInputValue] = useState("");
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<React.ElementRef<typeof ScrollArea>>(null);
 
   // Check if in dev mode (for delete button visibility)
   const isDevMode = import.meta.env.DEV || import.meta.env.VITE_DEV_MODE === 'true';
@@ -112,12 +113,6 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
     })),
   ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
-
   const filteredMessages = allMessages.filter((msg) => {
     const matchesFilter =
       filter === "all" ||
@@ -129,6 +124,23 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
     return matchesFilter && matchesSearch;
   });
 
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    // Use setTimeout to ensure DOM is updated
+    setTimeout(() => {
+      if (scrollAreaRef.current) {
+        // Find the ScrollArea viewport (Radix UI structure)
+        const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
+        if (viewport) {
+          viewport.scrollTop = viewport.scrollHeight;
+        } else if (scrollRef.current) {
+          // Fallback to direct scroll
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }
+    }, 100);
+  }, [filteredMessages.length, messages.length, steps.length]);
+
   const handleSend = () => {
     if (inputValue.trim() && onSendMessage) {
       onSendMessage(inputValue.trim());
@@ -139,8 +151,8 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
   const getInitials = (name: string) => name.charAt(0).toUpperCase();
 
   return (
-    <Card className="glass flex flex-col">
-      <div className="p-2 border-b border-border">
+    <Card className="glass flex flex-col h-full">
+      <div className="p-2 border-b border-border flex-shrink-0">
         <h2 className="text-sm font-semibold mb-2 flex items-center gap-2">
           <MessageSquare className="w-4 h-4" />
           Agent Communication
@@ -173,7 +185,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-2">
+      <ScrollArea ref={scrollAreaRef} className="flex-1 p-2 min-h-0">
         <div ref={scrollRef} className="space-y-2">
           {filteredMessages.length === 0 ? (
             <div className="text-center text-sm text-muted-foreground py-8">
@@ -237,7 +249,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
       </ScrollArea>
 
       {canSendMessages && onSendMessage && (
-        <div className="p-2 border-t border-border">
+        <div className="p-2 border-t border-border flex-shrink-0">
           <div className="flex gap-2">
             <Input
               placeholder="Type your message..."

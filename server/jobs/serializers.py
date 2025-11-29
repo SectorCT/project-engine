@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import App, Job, JobMessage, JobStep
+from .models import App, Job, JobMessage, JobStep, Ticket
 
 
 class JobMessageSerializer(serializers.ModelSerializer):
@@ -87,4 +87,30 @@ class AppSerializer(serializers.ModelSerializer):
         model = App
         fields = ('id', 'job_id', 'spec', 'prd_markdown', 'prd_generated_at', 'created_at', 'updated_at')
         read_only_fields = fields
+
+
+class TicketSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(source='job.id', read_only=True)
+    parent_id = serializers.UUIDField(source='parent.id', read_only=True)
+    dependencies = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Ticket
+        fields = (
+            'id',
+            'job_id',
+            'parent_id',
+            'type',
+            'title',
+            'description',
+            'status',
+            'assigned_to',
+            'dependencies',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = fields
+
+    def get_dependencies(self, obj):
+        return [str(dep.id) for dep in obj.dependencies.all()]
 

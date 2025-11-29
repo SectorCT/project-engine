@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import App, Job
+from .models import App, Job, Ticket
 from django.conf import settings
 
 from .models import App, Job, JobMessage
@@ -16,6 +16,7 @@ from .serializers import (
     JobMessageSerializer,
     JobSerializer,
     JobUpdateSerializer,
+    TicketSerializer,
 )
 from .services import finalize_requirements, initialize_requirements_collection, record_chat_message, record_description
 from .tasks import run_job_task
@@ -143,3 +144,14 @@ class JobMessageViewSet(
             metadata=metadata,
         )
 
+
+class TicketViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    permission_classes = (IsAuthenticated,)
+    serializer_class = TicketSerializer
+
+    def get_queryset(self):
+        queryset = Ticket.objects.filter(job__owner=self.request.user).select_related('job', 'parent').prefetch_related('dependencies')
+        job_id = self.request.query_params.get('job_id') or self.request.query_params.get('job')
+        if job_id:
+            queryset = queryset.filter(job_id=job_id)
+        return queryset.order_by('created_at')

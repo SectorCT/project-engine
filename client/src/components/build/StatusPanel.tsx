@@ -108,12 +108,12 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
   }));
 
   return (
-    <Card className="glass flex flex-col">
-      <div className="p-2 border-b border-border">
+    <Card className="glass flex flex-col h-full">
+      <div className="p-2 border-b border-border flex-shrink-0">
         <h2 className="text-sm font-semibold">Status & Metrics</h2>
       </div>
 
-      <ScrollArea className="flex-1 p-2">
+      <ScrollArea className="flex-1 p-2 min-h-0">
         <div className="space-y-3">
           {/* Overall Progress */}
           <div className="space-y-2">

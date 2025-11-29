@@ -197,5 +197,10 @@ AGENT_ORCHESTRATOR_PATH = os.getenv(
     'jobs.orchestrators.agent_loop.run_job',
 )
 
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+CURSOR_API_KEY = os.getenv('CURSOR_API_KEY', '')
+DOCKER_SOCKET_PATH = os.getenv('DOCKER_SOCKET_PATH', '')
+
 ALLOW_WS_TOKEN_QUERY = os.getenv('ALLOW_WS_TOKEN_QUERY', str(DEBUG)).lower() == 'true'
 ALLOW_JOB_PURGE = os.getenv('ALLOW_JOB_PURGE', str(DEBUG)).lower() == 'true'

@@ -10,8 +10,12 @@ class Job(models.Model):
     class Status(models.TextChoices):
         COLLECTING = 'collecting', 'Collecting Requirements'
         QUEUED = 'queued', 'Queued'
-        RUNNING = 'running', 'Running'
-        DONE = 'done', 'Done'
+        PLANNING = 'planning', 'Executive Planning'
+        PRD_READY = 'prd_ready', 'PRD Ready'
+        TICKETING = 'ticketing', 'Generating Tickets'
+        TICKETS_READY = 'tickets_ready', 'Tickets Ready'
+        BUILDING = 'building', 'Executing Tickets'
+        BUILD_DONE = 'build_done', 'Build Complete'
         FAILED = 'failed', 'Failed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

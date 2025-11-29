@@ -6,9 +6,9 @@ Login: POST /api/auth/login/
 Use the access token in Authorization: Bearer <token> for every HTTP request.
 For WebSockets, send the same header if your client supports it. While ALLOW_WS_TOKEN_QUERY=true (dev mode), you can also append ?token=<access_token> to the WS URL for testing.
 2. Job Lifecycle Overview
-User submits an “idea” via POST /api/jobs/ – this stores a job in status collecting and immediately triggers the first Client Relations agent reply.
+User submits an “idea” via POST /api/jobs/ – this stores a job in status `collecting` and immediately triggers the first Client Relations agent reply.
 The frontend connects to the job’s WebSocket channel and renders the chat + subsequent statuses in real time.
-Once the agent emits REQUIREMENTS_SUMMARY, the backend flips the job to queued and enqueues the Celery task; the executive build phase runs asynchronously and streams status/step/app events over the same socket.
+Once the agent emits REQUIREMENTS_SUMMARY, the backend flips the job to `queued` and enqueues the Celery task; the executive build phase runs asynchronously and streams `jobStatus` / `stageUpdate` / `agentDialogue` / `prdReady` events over the same socket. After the PRD is produced you will see `prd_ready` → `ticketing` → `tickets_ready` statuses as the ticket pass executes.
 The frontend can query REST endpoints any time to reconcile state (jobs, messages, final app artifact).
 3. REST APIs
 3.1 Jobs
@@ -32,6 +32,11 @@ Method	Path	Description
 GET	/api/apps/	List apps owned by the user.
 GET	/api/apps/<app_id>/	Retrieve one app.
 GET	/api/apps/by-job/<job_id>/	Fetch the app belonging to a specific job (204 if job finished but no app yet).
+3.4 Tickets
+Method	Path	Description
+GET	/api/tickets/?job_id=<job_id>	List all tickets (epics + stories) for the job with parent/dependency metadata.
+GET	/api/tickets/<ticket_id>/	Retrieve a single ticket (owner-scoped).
+
 4. WebSocket Protocol
 URL:
 ws://<host>:8000/ws/jobs/<job_id>/
@@ -39,10 +44,12 @@ Headers: Authorization: Bearer <token>
 For dev/testing, ws://<host>:8000/ws/jobs/<job_id>/?token=<token> also works.
 Message Types from server (payload.kind):
 Kind	Payload fields	Meaning
-chat	role, sender, content, metadata, timestamp	A conversation turn from user or agent. Every new message is also persisted.
-status	jobId, status, message, timestamp	High-level job status change (queued, running, done, failed).
-step	jobId, agent, message, order, timestamp	Executive discussion turn (CEO/CTO/Secretary).
-app	jobId, status, spec, timestamp	Final artifact has been stored (includes requirements, discussion history, PRD summary).
+stageUpdate	role, sender, content, metadata, timestamp	A conversation turn from user/agent/system (metadata.type=description for stage narrations). Every new message is persisted.
+jobStatus	jobId, status, message, timestamp	High-level job status change (`collecting`, `queued`, `planning`, `prd_ready`, `ticketing`, `tickets_ready`, `building`, `build_done`, `failed`).
+agentDialogue	jobId, agent, message, order, timestamp	Executive discussion turn (CEO/CTO/Secretary sequence).
+prdReady	jobId, spec, prdMarkdown, timestamp	PRD + structured spec is available (also saved to the `App` model).
+ticketUpdate	jobId, ticketId, status, title, assignedTo, message, metadata, timestamp	Per-ticket lifecycle progress (`todo` → `in_progress` → `done/failed`). Metadata can include log snippets or stage names.
+ticketReset	jobId, timestamp	Tells the UI to refresh the ticket list (emitted right before the backlog is rewritten).
 error	message	Validation errors on incoming client payloads (e.g., malformed JSON).
 Messages from client → server:
 Only kind="chat" is currently supported.
@@ -55,15 +62,15 @@ When the user opens a job detail:
 Fetch job detail (GET /api/jobs/<id>/) to get steps + messages snapshot.
 Connect WebSocket to /ws/jobs/<id>/ with JWT.
 Render existing messages (from REST) in chronological order.
-Listen for live chat, status, step, and app events and merge them into state.
+Listen for live chat, status, step, PRD, and ticket events and merge them into state.
 Allow user to send new chat messages via WS by posting {"kind":"chat","content":"..."}.
 5.2 After requirements summary:
-You’ll see status switch to queued and a chat message containing the summary.
-Keep the socket open; soon you’ll receive status → running and a sequence of step events from the CEO/CTO/Secretary.
-When the job is done, you’ll get an app payload with the spec. Optionally call GET /api/apps/by-job/<id>/ for the stored artifact.
+You’ll see status switch to `queued` and a chat message containing the summary.
+Keep the socket open; soon you’ll receive status → `planning` as CEO/CTO/Secretary messages stream via `agentDialogue`.
+Once the PRD is stored you’ll get a `prdReady` payload and status `prd_ready`. The system immediately moves into `ticketing`, then `tickets_ready` once all tickets are persisted, and finally `building` → `build_done` as the implementation agents execute every ticket. Optionally call GET /api/apps/by-job/<id>/ for the stored artifact and `/api/tickets/?job_id=<id>` for the backlog snapshot.
 5.3 Handling reconnects:
-Always read from /api/job-messages/?job_id=<id> when reconnecting so the chat history matches state before the WS was reopened.
-Keep track of job.status. If it’s still collecting, you can continue sending chat events. Once it transitions to queued/running, disable the input (the gatherer phase is over).
+Always read from /api/job-messages/?job_id=<id> when reconnecting so the chat history matches state before the WS was reopened. For the ticket board, fetch `/api/tickets/?job_id=<id>` once the job reaches `tickets_ready` so you have the latest backlog before streaming `ticketUpdate` events.
+Keep track of job.status. If it’s still `collecting`, you can continue sending chat events. Once it transitions to `queued` (or any later phase), disable the input because the gatherer phase is over. When status hits `building`, show the ticket execution log fed by `ticketUpdate` messages.
 6. Dev/Testing Tips
 .envtemplate exposes ALLOW_WS_TOKEN_QUERY and ALLOW_JOB_PURGE (default True in DEBUG). In production, set them to False.
 To start from a clean state during development: DELETE /api/jobs/purge/.
@@ -73,3 +80,22 @@ URL: ws://localhost:8000/ws/jobs/<id>/?token=<token>
 Message type: Text
 JSON body: {"kind":"chat","content":"Here are more details..."}
 With this flow the frontend can bootstrap state from REST, stream live updates via WS, and rely on the same JobMessage store for both. Let me know if you need a Postman collection or example React hooks for handling the socket.
+
+
+
+-----------------------
+
+Real-time Job Events
+Each WebSocket message carries a kind field. Subscribe to /ws/jobs/<job_id>/ and handle the payloads as follows:
+1. jobStatus  
+Use this to update any dashboards or per-job progress UI. Every payload contains `jobId`, the new status (`collecting → … → build_done`), and a short message.
+2. stageUpdate  
+This is the narrative feed (user ↔ agent chat plus backend-generated descriptions with `metadata.type=description`). Show it as the running commentary of what’s happening right now.
+3. agentDialogue  
+These are the executive-agent discussion turns. Render them in a dedicated timeline/transcript once the job hits `planning`.
+4. prdReady  
+Emitted once the PRD/spec is persisted. Use it to refresh your PRD viewer or call `GET /api/apps/by-job/<id>/`.
+5. ticketUpdate  
+Hook this into your backlog / implementation UI. It includes `ticketId`, the new status, and optional metadata for logs or stage names.
+6. ticketReset  
+Triggered before the backlog is regenerated. When you see it, re-fetch `/api/tickets/?job_id=<id>` so the UI matches the latest snapshot.

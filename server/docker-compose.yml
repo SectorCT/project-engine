@@ -45,6 +45,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.agent_loop.run_job}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
     command: >
       sh -c "python manage.py migrate &&
              daphne -b 0.0.0.0 -p 8000 server.asgi:application"
@@ -52,7 +53,7 @@ services:
   worker:
     build: .
     volumes:
-      - .:/home/app/
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy
@@ -70,6 +71,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       AGENT_ORCHESTRATOR_PATH: ${AGENT_ORCHESTRATOR_PATH:-jobs.orchestrators.agent_loop.run_job}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
     command: >
       sh -c "celery -A server worker -l info"
 
