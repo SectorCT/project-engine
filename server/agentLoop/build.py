@@ -243,7 +243,7 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None, s
                 if hasattr(job, 'app'):
                     app = job.app
                     spec = app.spec or {}
-                    spec['frontend_url'] = f'http://localhost:{frontend_port}'
+                    spec['frontend_url'] = f'http://142.93.168.32:{frontend_port}'
                     app.spec = spec
                     app.save(update_fields=['spec', 'updated_at'])
                     print(f"✅ Saved frontend URL to App.spec: {spec['frontend_url']}")
@@ -450,7 +450,7 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None, s
         time.sleep(2)
         
         if has_frontend and frontend_port:
-            frontend_url = f"http://localhost:{frontend_port}"
+            frontend_url = f"http://142.93.168.32:{frontend_port}"
             print(f"\n✅ Build complete! Frontend available at: {frontend_url}")
             cb.log(f"Frontend available at: {frontend_url}")
     except Exception as exc:
@@ -461,7 +461,7 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None, s
         # We explicitly do NOT stop the container as requested
         print("\nKeeping container running as requested.")
         if frontend_port:
-            print(f"Container port 3000 is exposed - frontend accessible at http://localhost:{frontend_port}")
+            print(f"Container port 3000 is exposed - frontend accessible at http://142.93.168.32:{frontend_port}")
         print(f"You can inspect the container with: docker exec {docker_env.container_name} ls -la /app")
         # docker_env.stop_container()
 
