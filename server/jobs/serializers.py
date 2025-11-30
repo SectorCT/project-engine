@@ -34,6 +34,8 @@ class JobStepSerializer(serializers.ModelSerializer):
 
 
 class JobSerializer(serializers.ModelSerializer):
+    is_paused = serializers.SerializerMethodField()
+    
     class Meta:
         model = Job
         fields = (
@@ -43,6 +45,7 @@ class JobSerializer(serializers.ModelSerializer):
             'requirements_summary',
             'status',
             'error_message',
+            'is_paused',
             'created_at',
             'updated_at',
         )
@@ -53,9 +56,14 @@ class JobSerializer(serializers.ModelSerializer):
             'requirements_summary',
             'status',
             'error_message',
+            'is_paused',
             'created_at',
             'updated_at',
         )
+    
+    def get_is_paused(self, obj):
+        """Safely get is_paused field, returning False if field doesn't exist (migration not run)."""
+        return getattr(obj, 'is_paused', False)
 
 
 class JobDetailSerializer(JobSerializer):

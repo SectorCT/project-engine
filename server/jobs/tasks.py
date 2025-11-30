@@ -30,10 +30,21 @@ def run_job_task(job_id: str) -> None:
         logger.info('Job %s is still collecting requirements; task will be re-triggered later.', job_id)
         return
 
+    # Check if job is paused
+    if job.is_paused:
+        logger.info('Job %s is paused. Exiting task. Resume to continue.', job_id)
+        return
+
     callbacks = JobCallbacks(job_id=str(job.id))
 
     # Ensure the job status switches to planning before the orchestrator does work.
     set_job_status(str(job.id), Job.Status.PLANNING, 'Executive planning started')
+
+    # Check pause again after status update
+    job.refresh_from_db()
+    if job.is_paused:
+        logger.info('Job %s was paused during status update. Exiting task.', job_id)
+        return
 
     try:
         run_orchestrator(
@@ -62,7 +73,19 @@ def run_ticket_builder_task(job_id: str) -> None:
         logger.info('Job %s not in builder-ready state (%s). Skipping.', job_id, job.status)
         return
 
+    # Check if job is paused
+    if job.is_paused:
+        logger.info('Job %s is paused. Exiting builder task. Resume to continue.', job_id)
+        return
+
     set_job_status(str(job.id), Job.Status.BUILDING, 'Executing tickets')
+    
+    # Check pause again after status update
+    job.refresh_from_db()
+    if job.is_paused:
+        logger.info('Job %s was paused during status update. Exiting builder task.', job_id)
+        return
+
     callbacks = TicketBuildCallbacks(job_id=str(job.id))
 
     try:
@@ -78,6 +101,11 @@ def continue_job_task(job_id: str, continuation_text: str) -> None:
         job = Job.objects.get(id=job_id)
     except Job.DoesNotExist:
         logger.warning('Continuation requested for missing job %s', job_id)
+        return
+
+    # Check if job is paused
+    if job.is_paused:
+        logger.info('Job %s is paused. Exiting continuation task. Resume to continue.', job_id)
         return
 
     callbacks = JobCallbacks(job_id=str(job.id))

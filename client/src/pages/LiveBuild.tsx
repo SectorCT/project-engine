@@ -21,6 +21,7 @@ import {
   Edit,
   X,
   PlusCircle,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, JobMessage, JobStep, Ticket } from "@/lib/api";
@@ -40,7 +41,7 @@ interface Tab {
 export default function LiveBuild() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [isPaused, setIsPaused] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
   const [device, setDevice] = useState<"desktop" | "mobile">(
     "desktop"
   );
@@ -212,7 +213,7 @@ export default function LiveBuild() {
   // Connect WebSocket
   const { isConnected, sendMessage } = useWebSocket({
     jobId: id || '',
-    enabled: !!id && !isPaused,
+    enabled: !!id && !job?.is_paused,
     onMessage: (message: WebSocketMessage) => {
       handleWebSocketMessage(message);
     },
@@ -707,6 +708,36 @@ export default function LiveBuild() {
     }
   };
 
+  const handlePauseResume = async () => {
+    if (!id || !job) return;
+
+    const isCurrentlyPaused = job.is_paused || false;
+    setIsPausing(true);
+
+    try {
+      if (isCurrentlyPaused) {
+        const response = await api.resumeJob(id);
+        toast.success(response.detail || 'Job resumed successfully');
+        addSystemMessage('▶️ Job execution has been resumed. Continuing from current phase.', {
+          stage: job.status,
+          type: 'status_update',
+        });
+      } else {
+        const response = await api.pauseJob(id);
+        toast.success(response.detail || 'Job paused successfully');
+        addSystemMessage('⏸️ Job execution has been paused. Resume to continue.', {
+          stage: job.status,
+          type: 'status_update',
+        });
+      }
+      refetch();
+    } catch (error: any) {
+      toast.error(error?.detail || `Failed to ${isCurrentlyPaused ? 'resume' : 'pause'} job`);
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
   const handleFileClick = (filePath: string, fileName: string) => {
     // Check if tab already exists
     const existingTab = tabs.find((tab) => tab.filePath === filePath);
@@ -830,9 +861,13 @@ export default function LiveBuild() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setIsPaused(!isPaused)}
+              onClick={handlePauseResume}
+              disabled={isPausing || !job || job.status === 'build_done' || job.status === 'done' || job.status === 'failed'}
+              title={job?.is_paused ? 'Resume job' : 'Pause job'}
             >
-              {isPaused ? (
+              {isPausing ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : job?.is_paused ? (
                 <Play className="w-5 h-5" />
               ) : (
                 <Pause className="w-5 h-5" />
