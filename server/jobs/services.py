@@ -88,7 +88,43 @@ def set_ticket_status(
 ) -> Ticket:
     ticket.status = status
     ticket.save(update_fields=['status', 'updated_at'])
+    # Refresh to ensure we have the latest data
+    ticket.refresh_from_db()
+    
     broadcast_ticket_update(ticket, status=status, message=message, extra=extra)
+    
+    # Also send a chat message to Agent Communication with the assigned dev as sender
+    # Ensure we have the latest job instance to avoid stale data
+    job = Job.objects.get(id=ticket.job_id)
+    assigned_dev = ticket.assigned_to or 'Unassigned'
+    status_emoji = {
+        'in_progress': '🔄',
+        'done': '✅',
+        'failed': '❌',
+        'todo': '📝',
+        'pending': '⏳',
+    }.get(status.lower(), '📋')
+    
+    chat_message = message or f'{status_emoji} Ticket "{ticket.title}" status changed to {status}'
+    if message:
+        chat_message = f'{status_emoji} {message}'
+    
+    # Persist the chat message - this must be saved to database for page reloads
+    record_chat_message(
+        job,
+        role='system',
+        sender=assigned_dev,
+        content=chat_message,
+        metadata={
+            'ticketId': str(ticket.id),
+            'ticketTitle': ticket.title,
+            'ticketStatus': status,
+            'ticketType': ticket.type,
+            **(extra or {}),
+        },
+        broadcast=True,
+    )
+    
     return ticket
 
 
@@ -433,7 +469,9 @@ def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> 
 
     temp_map: Dict[str, Ticket] = {}
     created = 0
+    total_tickets = len(tickets_data)
 
+    # Broadcast reset message first
     broadcast_job_event(
         str(job.id),
         {
@@ -441,6 +479,28 @@ def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> 
             'jobId': str(job.id),
             'timestamp': timezone.now().isoformat(),
         },
+    )
+
+    # Broadcast start message (also send as chat message)
+    start_message = f'📋 Creating {total_tickets} ticket{"s" if total_tickets != 1 else ""}...'
+    broadcast_job_event(
+        str(job.id),
+        {
+            'kind': 'stageUpdate',
+            'jobId': str(job.id),
+            'role': 'system',
+            'sender': 'Project Manager',
+            'content': start_message,
+            'timestamp': timezone.now().isoformat(),
+        },
+    )
+    record_chat_message(
+        job,
+        role='system',
+        sender='Project Manager',
+        content=start_message,
+        metadata={'stage': 'ticket_generation', 'type': 'system_activity'},
+        broadcast=True,
     )
 
     with transaction.atomic():
@@ -466,11 +526,15 @@ def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> 
             )
             temp_map[temp_id] = ticket
             created += 1
+            
+            # Broadcast each ticket creation immediately (outside transaction for real-time updates)
+            # We need to commit the transaction first, but we'll do it after the loop
+            # For now, broadcast immediately - Django will handle the transaction
             broadcast_ticket_update(
                 ticket,
                 status=ticket.status,
                 message='Ticket initialized',
-                extra={'event': 'created'},
+                extra={'event': 'created', 'progress': f'{created}/{total_tickets}'},
             )
 
         for payload in tickets_data:
@@ -519,6 +583,30 @@ def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> 
     if deleted_count > 0:
         logger.info('Deleted %d epics with no stories for job %s', deleted_count, job.id)
 
+    # Broadcast summary message after all tickets are created (also send as chat message)
+    final_count = job.tickets.count()
+    if final_count > 0:
+        summary_message = f'✅ Created {final_count} ticket{"s" if final_count != 1 else ""} successfully! Ready for execution.'
+        broadcast_job_event(
+            str(job.id),
+            {
+                'kind': 'stageUpdate',
+                'jobId': str(job.id),
+                'role': 'system',
+                'sender': 'Project Manager',
+                'content': summary_message,
+                'timestamp': timezone.now().isoformat(),
+            },
+        )
+        record_chat_message(
+            job,
+            role='system',
+            sender='Project Manager',
+            content=summary_message,
+            metadata={'stage': 'ticket_generation', 'type': 'system_activity'},
+            broadcast=True,
+        )
+
     return created
 
 
@@ -543,6 +631,9 @@ def record_chat_message(
     broadcast: bool = True,
 ) -> JobMessage:
     metadata = metadata or {}
+    # Ensure message is saved immediately (outside any transaction that might rollback)
+    # Use get() to ensure we have the latest job instance
+    job = Job.objects.get(id=job.id)
     message = JobMessage.objects.create(
         job=job,
         role=role,
@@ -550,6 +641,8 @@ def record_chat_message(
         content=content,
         metadata=metadata,
     )
+    # Force database commit by refreshing from DB
+    message.refresh_from_db()
 
     if broadcast:
         broadcast_job_event(
@@ -776,6 +869,15 @@ class TicketBuildCallbacks:
     def on_stage(self, stage: str, message: str) -> None:
         job = self._get_job()
         record_description(job, agent='Builder', stage=stage, message=message)
+        # Also send as chat message from devops engineer for system activities
+        record_chat_message(
+            job,
+            role='system',
+            sender='devops engineer',
+            content=message,
+            metadata={'stage': stage, 'type': 'system_activity'},
+            broadcast=True,
+        )
 
     def on_ticket_progress(
         self,
@@ -804,6 +906,15 @@ class TicketBuildCallbacks:
     def on_log(self, message: str) -> None:
         job = self._get_job()
         record_description(job, agent='Builder', stage='Build Execution', message=message)
+        # Also send as chat message from devops engineer
+        record_chat_message(
+            job,
+            role='system',
+            sender='devops engineer',
+            content=message,
+            metadata={'stage': 'Build Execution', 'type': 'system_log'},
+            broadcast=True,
+        )
 
     def on_error(self, message: str) -> None:
         fail_job(self.job_id, message=message)

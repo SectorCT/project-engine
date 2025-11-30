@@ -89,11 +89,85 @@ Return ONLY valid JSON: {{"epic": {{...}}, "stories": [ ... ]}}
                     result.append(char)
             return "".join(result)
 
+        def fix_missing_commas(text: str) -> str:
+            """Fix missing commas in JSON - adds commas after closing quotes when followed by a key."""
+            result: List[str] = []
+            i = 0
+            in_string = False
+            escape_next = False
+            
+            while i < len(text):
+                char = text[i]
+                
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                    i += 1
+                    continue
+                
+                if char == '\\':
+                    result.append(char)
+                    escape_next = True
+                    i += 1
+                    continue
+                
+                if char == '"':
+                    was_in_string = in_string
+                    in_string = not in_string
+                    result.append(char)
+                    
+                    # If we just closed a string, check if we need a comma
+                    if was_in_string and not in_string:
+                        # Look ahead past whitespace
+                        j = i + 1
+                        while j < len(text) and text[j] in ' \t\n\r':
+                            j += 1
+                        
+                        if j < len(text):
+                            next_char = text[j]
+                            # If next char is a quote (indicating a new key), we likely need a comma
+                            if next_char == '"':
+                                # Look backwards to find the last non-whitespace char before the quote we just closed
+                                k = len(result) - 2  # -2 because we just added the closing quote
+                                while k >= 0 and result[k] in ' \t\n\r':
+                                    k -= 1
+                                
+                                # Check if there's already a comma, colon, or opening brace/bracket
+                                # We don't want to add a comma if we're right after a colon (key: value)
+                                if k >= 0 and result[k] not in ',{[:\n':
+                                    # No comma found, add one after the closing quote
+                                    result.append(',')
+                    
+                    i += 1
+                    continue
+                
+                result.append(char)
+                i += 1
+            
+            return ''.join(result)
+        
         try:
             cleaned_text = fix_string_newlines(cleaned_text)
+            cleaned_text = fix_missing_commas(cleaned_text)
             return json.loads(cleaned_text)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             print(f"Backend PM failed to parse JSON for epic {functional_epic.get('title')}")
+            print(f"JSON Error: {str(e)}")
             print(response_text[:600])
+            
+            # Try one more time with array extraction
+            try:
+                array_start = cleaned_text.find('[')
+                array_end = cleaned_text.rfind(']')
+                if array_start != -1 and array_end != -1:
+                    array_text = cleaned_text[array_start:array_end+1]
+                    fixed_text = fix_string_newlines(array_text)
+                    fixed_text = fix_missing_commas(fixed_text)
+                    result = json.loads(fixed_text)
+                    print(f"Successfully parsed after extracting array and fixing.")
+                    return result
+            except (json.JSONDecodeError, Exception) as e2:
+                print(f"Still failed after fix attempts. Error: {e2}")
+            
             return {"epic": None, "stories": []}
 

@@ -1,4 +1,5 @@
 import docker
+import docker.errors
 import hashlib
 import io
 import os
@@ -25,8 +26,30 @@ class DockerEnv:
         :param workspace_path: Path to LOCAL workspace (currently unused - container starts empty).
         :param project_id: Job/project identifier used for container naming and port assignment.
         """
-        # Use default Docker socket (docker.from_env() uses DOCKER_HOST env var or default socket)
-        self.client = docker.from_env()
+        # Use default Docker socket at /var/run/docker.sock
+        # This is the standard location for Docker-in-Docker (socket mounted from host)
+        # The socket is mounted in docker-compose.yml: /var/run/docker.sock:/var/run/docker.sock
+        default_socket_path = '/var/run/docker.sock'
+        try:
+            # Check if socket file exists (it should be mounted from host)
+            if os.path.exists(default_socket_path):
+                # Use the mounted socket - this allows the container to control the host's Docker daemon
+                self.client = docker.DockerClient(base_url=f'unix://{default_socket_path}')
+        else:
+                # Fallback: try docker.from_env() which reads DOCKER_HOST env var
+                # This is useful if DOCKER_HOST is set to a different socket path
+            self.client = docker.from_env()
+        except docker.errors.DockerException as e:
+            raise RuntimeError(
+                f"Cannot connect to Docker daemon. Socket file '{default_socket_path}' not found or not accessible. "
+                f"Make sure Docker socket is mounted in the container (docker-compose.yml should have: "
+                f"- /var/run/docker.sock:/var/run/docker.sock). Original error: {e}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to initialize Docker client. Socket file '{default_socket_path}' may not exist or Docker daemon may not be running. "
+                f"Original error: {e}"
+            ) from e
 
         self.workspace_path = os.path.abspath(workspace_path) if workspace_path else None
         self.image_name = "project_engine_builder:latest"
