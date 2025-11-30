@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, JobMessage, JobStep } from "@/lib/api";
+import { api, JobMessage, JobStep, Ticket } from "@/lib/api";
 import { useWebSocket, WebSocketMessage } from "@/hooks/useWebSocket";
 import { mapServerStatusToClient, formatTimeAgo, ClientJobStatus } from "@/lib/jobUtils";
 import { toast } from "sonner";
@@ -54,6 +54,7 @@ export default function LiveBuild() {
   const [activeTabId, setActiveTabId] = useState<string>("preview");
   const [messages, setMessages] = useState<JobMessage[]>([]);
   const [steps, setSteps] = useState<JobStep[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [appSpec, setAppSpec] = useState<any>(null);
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editPrompt, setEditPrompt] = useState("");
@@ -112,6 +113,15 @@ export default function LiveBuild() {
       api.getJobMessages(id)
         .then((msgs) => setMessages(msgs))
         .catch((err) => console.error('Failed to load messages:', err));
+    }
+  }, [id]);
+
+  // Load initial tickets
+  useEffect(() => {
+    if (id) {
+      api.getTickets(id)
+        .then((tickets) => setTickets(tickets))
+        .catch((err) => console.error('Failed to load tickets:', err));
     }
   }, [id]);
 
@@ -440,6 +450,7 @@ export default function LiveBuild() {
               activeTabId={activeTabId}
               onTabChange={setActiveTabId}
               onTabClose={handleTabClose}
+              tickets={tickets}
             />
           </motion.div>
 

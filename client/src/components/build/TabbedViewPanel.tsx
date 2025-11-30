@@ -5,6 +5,7 @@ import { X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Maximize2 } fr
 import { cn } from "@/lib/utils";
 import { LivePreviewContent } from "./LivePreviewContent";
 import { CodeViewer } from "./CodeViewer";
+import { Ticket } from "@/lib/api";
 
 interface Tab {
   id: string;
@@ -22,6 +23,7 @@ interface TabbedViewPanelProps {
   activeTabId: string;
   onTabChange: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
+  tickets?: Ticket[];
 }
 
 const deviceDimensions = {
@@ -37,6 +39,7 @@ export const TabbedViewPanel = ({
   activeTabId,
   onTabChange,
   onTabClose,
+  tickets = [],
 }: TabbedViewPanelProps) => {
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">(
     initialDevice
@@ -129,7 +132,7 @@ export const TabbedViewPanel = ({
         {activeTab.type === "preview" ? (
           <div className="h-full p-4 flex items-start justify-center">
             <div className={cn("w-full h-full mx-auto flex items-start justify-center", deviceDimensions[device])}>
-              <LivePreviewContent device={device} />
+              <LivePreviewContent device={device} tickets={tickets} />
             </div>
           </div>
         ) : (

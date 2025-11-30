@@ -1,8 +1,12 @@
+import { Ticket } from "@/lib/api";
+import { TicketsPanel } from "./TicketsPanel";
+
 interface LivePreviewContentProps {
   device: "desktop" | "tablet" | "mobile";
+  tickets?: Ticket[];
 }
 
-export const LivePreviewContent = ({ device }: LivePreviewContentProps) => {
+export const LivePreviewContent = ({ device, tickets = [] }: LivePreviewContentProps) => {
   return (
     <div className="bg-background-elevated rounded-lg border border-border overflow-hidden w-full aspect-video flex flex-col">
       {/* Browser Controls */}
@@ -20,45 +24,43 @@ export const LivePreviewContent = ({ device }: LivePreviewContentProps) => {
 
       {/* Preview Content */}
       <div className="flex-1 overflow-auto bg-background">
-        <div className="p-6 space-y-4">
-          {/* Mock App Content */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-gradient">
-                Task Management App
-              </h1>
-            </div>
+        <div className="p-6 space-y-4 h-full">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold text-gradient">
+              Task Management App
+            </h1>
+          </div>
 
+          {tickets.length > 0 ? (
+            <TicketsPanel tickets={tickets} />
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-card p-4 rounded-lg border border-border">
                 <h3 className="font-semibold mb-2">To Do</h3>
                 <div className="space-y-2">
-                  <div className="bg-muted p-2 rounded text-sm">
-                    Design user interface
-                  </div>
-                  <div className="bg-muted p-2 rounded text-sm">
-                    Set up database
+                  <div className="text-xs text-muted-foreground text-center py-4">
+                    No tickets yet
                   </div>
                 </div>
               </div>
               <div className="bg-card p-4 rounded-lg border border-border">
                 <h3 className="font-semibold mb-2">In Progress</h3>
                 <div className="space-y-2">
-                  <div className="bg-primary/10 p-2 rounded text-sm border border-primary/20">
-                    Implement authentication
+                  <div className="text-xs text-muted-foreground text-center py-4">
+                    No tickets yet
                   </div>
                 </div>
               </div>
               <div className="bg-card p-4 rounded-lg border border-border">
                 <h3 className="font-semibold mb-2">Done</h3>
                 <div className="space-y-2">
-                  <div className="bg-success/10 p-2 rounded text-sm border border-success/20">
-                    Project setup
+                  <div className="text-xs text-muted-foreground text-center py-4">
+                    No tickets yet
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
