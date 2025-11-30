@@ -44,6 +44,7 @@ Allows adding new requirements after the first build completes.
 * Guard rails: backend rejects if the job is still running or another continuation is in progress.
 * Progress: streamed over the same WebSocket (chat/status/ticket updates). Re-fetch job detail to see the updated summary/messages.
 
+
 5. WebSocket Protocol (chat through build completion)
 -----------------------------------------------------
 * URL: `ws://<host>:8000/ws/jobs/<job_id>/`

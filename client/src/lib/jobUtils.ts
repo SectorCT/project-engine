@@ -24,20 +24,35 @@ export function calculateProgress(job: Job): number {
   // Calculate progress based on status
   switch (job.status) {
     case 'collecting':
-      return 10;
+      return 5;
     case 'queued':
+      return 10;
+    case 'planning':
       return 20;
-    case 'running':
+    case 'prd_ready':
+      return 30;
+    case 'ticketing':
+      return 40;
+    case 'tickets_ready':
+      return 50;
+    case 'building':
       // If we have steps, calculate based on steps
       if (job.steps && job.steps.length > 0) {
-        // Rough estimate: 20% base + up to 60% based on steps (assuming ~10 steps total)
-        return Math.min(20 + (job.steps.length * 6), 80);
+        // Rough estimate: 50% base + up to 50% based on steps (assuming ~10 steps total)
+        return Math.min(50 + (job.steps.length * 5), 95);
       }
       return 50;
+    case 'build_done':
     case 'done':
       return 100;
     case 'failed':
-      return 0;
+      // For failed jobs, show progress up to the point of failure
+      // If we have steps, show progress based on completed work
+      if (job.steps && job.steps.length > 0) {
+        return Math.min(50 + (job.steps.length * 5), 95);
+      }
+      // Otherwise show minimal progress to indicate it started
+      return 10;
     default:
       return 0;
   }

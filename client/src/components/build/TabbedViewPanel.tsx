@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Maximize2 } from "lucide-react";
+import { X, Monitor, Smartphone, RefreshCw, ExternalLink, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LivePreviewContent } from "./LivePreviewContent";
 import { CodeViewer } from "./CodeViewer";
@@ -18,18 +18,19 @@ interface Tab {
 }
 
 interface TabbedViewPanelProps {
-  device: "desktop" | "tablet" | "mobile";
-  onDeviceChange?: (device: "desktop" | "tablet" | "mobile") => void;
+  device: "desktop" | "mobile";
+  onDeviceChange?: (device: "desktop" | "mobile") => void;
   tabs: Tab[];
   activeTabId: string;
   onTabChange: (tabId: string) => void;
   onTabClose: (tabId: string) => void;
   tickets?: Ticket[];
+  jobStatus?: string;
+  errorMessage?: string;
 }
 
 const deviceDimensions = {
   desktop: "w-full",
-  tablet: "w-[768px] mx-auto",
   mobile: "w-[375px] mx-auto",
 };
 
@@ -41,12 +42,14 @@ export const TabbedViewPanel = ({
   onTabChange,
   onTabClose,
   tickets = [],
+  jobStatus,
+  errorMessage,
 }: TabbedViewPanelProps) => {
-  const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">(
-    initialDevice
+  const [device, setDevice] = useState<"desktop" | "mobile">(
+    initialDevice as "desktop" | "mobile"
   );
 
-  const handleDeviceChange = (newDevice: "desktop" | "tablet" | "mobile") => {
+  const handleDeviceChange = (newDevice: "desktop" | "mobile") => {
     setDevice(newDevice);
     onDeviceChange?.(newDevice);
   };
@@ -99,14 +102,6 @@ export const TabbedViewPanel = ({
                 <Monitor className="w-4 h-4" />
               </Button>
               <Button
-                variant={device === "tablet" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => handleDeviceChange("tablet")}
-                className="h-8 px-3"
-              >
-                <Tablet className="w-4 h-4" />
-              </Button>
-              <Button
                 variant={device === "mobile" ? "default" : "ghost"}
                 size="sm"
                 onClick={() => handleDeviceChange("mobile")}
@@ -131,9 +126,18 @@ export const TabbedViewPanel = ({
       {/* Content Area */}
       <div className="flex-1 overflow-hidden min-h-0">
         {activeTab.type === "preview" ? (
-          <div className="h-full p-4 flex items-start justify-center">
-            <div className={cn("w-full h-full mx-auto flex items-start justify-center", deviceDimensions[device])}>
-              <LivePreviewContent device={device} tickets={tickets} />
+          <div className="h-full p-4 flex items-start justify-center overflow-auto">
+            <div className={cn(
+              "mx-auto flex items-start justify-center", 
+              deviceDimensions[device],
+              device === "mobile" ? "h-[667px]" : "w-full h-full"
+            )}>
+              <LivePreviewContent 
+                device={device} 
+                tickets={tickets} 
+                jobStatus={jobStatus}
+                errorMessage={errorMessage}
+              />
             </div>
           </div>
         ) : activeTab.type === "tickets" ? (

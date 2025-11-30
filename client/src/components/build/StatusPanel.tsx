@@ -2,21 +2,27 @@ import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2, Circle, Clock, Loader2 } from "lucide-react";
+import { CheckCircle2, Circle, Clock, Loader2, AlertCircle, MessageSquare, Ticket, Code, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Job, JobStep } from "@/lib/api";
+import { Job, JobStep, Ticket as TicketType } from "@/lib/api";
 import { calculateProgress, formatTimeAgo } from "@/lib/jobUtils";
 
 interface StatusPanelProps {
   job?: Job;
   steps?: JobStep[];
+  tickets?: TicketType[];
+  messages?: any[];
 }
 
 function getAgentStatus(job: Job | undefined, agentName: string): "idle" | "working" | "waiting" | "complete" {
   if (!job) return "idle";
   
-  if (job.status === "done") return "complete";
-  if (job.status === "failed") return "idle";
+  if (job.status === "done" || job.status === "build_done") return "complete";
+  if (job.status === "failed") {
+    // For failed jobs, check if agent had any activity
+    const agentSteps = job.steps?.filter(step => step.agent_name === agentName) || [];
+    return agentSteps.length > 0 ? "complete" : "idle";
+  }
   
   // Check if this agent has recent steps
   const recentSteps = job.steps?.filter(step => step.agent_name === agentName) || [];
@@ -32,7 +38,9 @@ function getAgentStatus(job: Job | undefined, agentName: string): "idle" | "work
     return "complete";
   }
   
-  if (job.status === "running") return "waiting";
+  // Check job status to determine if agents are waiting
+  const activeStatuses = ["building", "running", "planning", "ticketing", "tickets_ready"];
+  if (activeStatuses.includes(job.status)) return "waiting";
   return "idle";
 }
 
@@ -80,10 +88,35 @@ const StatusIndicator = ({ status }: { status: Agent["status"] }) => {
   }
 };
 
-export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
+export const StatusPanel = ({ job, steps = [], tickets = [], messages = [] }: StatusPanelProps) => {
   const overallProgress = job ? calculateProgress(job) : 0;
   const timeElapsed = job ? formatTimeAgo(job.created_at) : "0 minutes";
-  const costSpent = "$0.00"; // TODO: Calculate from actual usage
+  const isFailed = job?.status === 'failed';
+  
+  // Calculate ticket metrics
+  const workTickets = tickets.filter(t => t.type !== 'epic');
+  const completedTickets = workTickets.filter(t => t.status === 'done' || t.status === 'completed').length;
+  const inProgressTickets = workTickets.filter(t => t.status === 'in_progress').length;
+  const todoTickets = workTickets.filter(t => t.status === 'todo' || !t.status || t.status === '').length;
+  const ticketProgress = workTickets.length > 0 ? Math.round((completedTickets / workTickets.length) * 100) : 0;
+
+  // Calculate message and step counts
+  const messageCount = messages?.length || 0;
+  const stepCount = steps?.length || 0;
+
+  // Calculate time metrics
+  const startTime = job ? new Date(job.created_at).getTime() : Date.now();
+  const currentTime = Date.now();
+  const elapsedMs = currentTime - startTime;
+  const elapsedMinutes = Math.floor(elapsedMs / 60000);
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  
+  const formattedElapsed = elapsedDays > 0 
+    ? `${elapsedDays}d ${elapsedHours % 24}h`
+    : elapsedHours > 0
+    ? `${elapsedHours}h ${elapsedMinutes % 60}m`
+    : `${elapsedMinutes}m`;
 
   // Extract unique agents from steps
   const agentNames = Array.from(new Set(steps.map(step => step.agent_name)));
@@ -99,13 +132,23 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
     currentTask: steps.find(s => s.agent_name === name)?.message.substring(0, 50) + "...",
   }));
 
-  // Create activity log from steps
-  const activity = steps.slice(-10).reverse().map((step, idx) => ({
-    id: step.id,
-    type: "info" as const,
-    message: `${step.agent_name}: ${step.message.substring(0, 60)}${step.message.length > 60 ? '...' : ''}`,
-    timestamp: formatTimestamp(step.created_at),
-  }));
+  // Create activity log from steps and messages
+  const recentSteps = steps.slice(-5).reverse();
+  const recentMessages = messages?.slice(-3).reverse() || [];
+  const activity = [
+    ...recentSteps.map((step) => ({
+      id: step.id,
+      type: "info" as const,
+      message: `${step.agent_name}: ${step.message.substring(0, 60)}${step.message.length > 60 ? '...' : ''}`,
+      timestamp: formatTimestamp(step.created_at),
+    })),
+    ...recentMessages.map((msg) => ({
+      id: msg.id,
+      type: msg.role === 'system' ? "info" as const : msg.role === 'user' ? "success" as const : "info" as const,
+      message: `${msg.sender || 'System'}: ${msg.content.substring(0, 60)}${msg.content.length > 60 ? '...' : ''}`,
+      timestamp: formatTimestamp(msg.created_at),
+    })),
+  ].slice(0, 10);
 
   return (
     <Card className="glass flex flex-col h-full">
@@ -115,6 +158,21 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
 
       <ScrollArea className="flex-1 p-2 min-h-0">
         <div className="space-y-3">
+          {/* Error Banner (if failed) */}
+          {isFailed && job?.error_message && (
+            <div className="p-2 bg-status-failed/10 border border-status-failed/30 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-status-failed flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-status-failed mb-1">Build Failed</p>
+                  <p className="text-[10px] text-muted-foreground line-clamp-2">
+                    {job.error_message}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Overall Progress */}
           <div className="space-y-2">
             <h3 className="text-xs font-semibold">Overall Progress</h3>
@@ -128,7 +186,7 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
                     stroke="currentColor"
                     strokeWidth="6"
                     fill="none"
-                    className="text-muted"
+                    className={isFailed ? "text-status-failed/20" : "text-muted"}
                   />
                   <circle
                     cx="32"
@@ -138,24 +196,102 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
                     strokeWidth="6"
                     fill="none"
                     strokeDasharray={`${(overallProgress / 100) * 175.9} 175.9`}
-                    className="text-primary transition-all duration-300"
+                    className={cn(
+                      "transition-all duration-300",
+                      isFailed ? "text-status-failed" : "text-primary"
+                    )}
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-lg font-bold">{overallProgress}%</span>
+                  <span className={cn(
+                    "text-lg font-bold",
+                    isFailed && "text-status-failed"
+                  )}>
+                    {overallProgress}%
+                  </span>
                 </div>
               </div>
               <div className="text-center space-y-0.5">
-                <p className="text-xs font-medium">Development</p>
-                <p className="text-[10px] text-muted-foreground">
-                  ~{timeElapsed} left
+                <p className="text-xs font-medium">
+                  {isFailed ? 'Failed' : job?.status || 'Initializing'}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  {costSpent} spent
+                  {formattedElapsed} elapsed
                 </p>
               </div>
             </div>
           </div>
+
+          {/* Quick Stats */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold">Quick Stats</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-2 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Ticket className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground">Tickets</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-sm font-bold">{completedTickets}</span>
+                  <span className="text-[10px] text-muted-foreground">/{workTickets.length || 0}</span>
+                </div>
+                {workTickets.length > 0 && (
+                  <Progress value={ticketProgress} className="h-1 mt-1" />
+                )}
+              </div>
+              <div className="p-2 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <MessageSquare className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground">Messages</span>
+                </div>
+                <span className="text-sm font-bold">{messageCount}</span>
+              </div>
+              <div className="p-2 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Code className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground">Steps</span>
+                </div>
+                <span className="text-sm font-bold">{stepCount}</span>
+              </div>
+              <div className="p-2 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <TrendingUp className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-[10px] text-muted-foreground">Active</span>
+                </div>
+                <span className="text-sm font-bold">{inProgressTickets}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Ticket Status Breakdown */}
+          {workTickets.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold">Ticket Status</h3>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between p-1.5 rounded-lg bg-muted/30 border border-border">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-3 h-3 text-success" />
+                    <span className="text-xs">Completed</span>
+                  </div>
+                  <span className="text-xs font-semibold">{completedTickets}</span>
+                </div>
+                <div className="flex items-center justify-between p-1.5 rounded-lg bg-muted/30 border border-border">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 text-warning animate-spin" />
+                    <span className="text-xs">In Progress</span>
+                  </div>
+                  <span className="text-xs font-semibold">{inProgressTickets}</span>
+                </div>
+                <div className="flex items-center justify-between p-1.5 rounded-lg bg-muted/30 border border-border">
+                  <div className="flex items-center gap-2">
+                    <Circle className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-xs">To Do</span>
+                  </div>
+                  <span className="text-xs font-semibold">{todoTickets}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Active Agents */}
           <div className="space-y-2">

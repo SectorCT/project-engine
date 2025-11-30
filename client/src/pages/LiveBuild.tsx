@@ -41,7 +41,7 @@ export default function LiveBuild() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [isPaused, setIsPaused] = useState(false);
-  const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">(
+  const [device, setDevice] = useState<"desktop" | "mobile">(
     "desktop"
   );
   const [tabs, setTabs] = useState<Tab[]>([
@@ -69,6 +69,10 @@ export default function LiveBuild() {
   const [isContinuationOpen, setIsContinuationOpen] = useState(false);
   const [continuationText, setContinuationText] = useState("");
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch job data
   const { data: job, isLoading, error, refetch } = useQuery({
@@ -480,6 +484,48 @@ export default function LiveBuild() {
     }
   };
 
+  const handleRenameJob = async () => {
+    if (!id || !renameText.trim()) {
+      toast.error('Project name cannot be empty');
+      return;
+    }
+
+    if (job?.status !== 'collecting') {
+      toast.error('You can only rename the project while it is in the collecting phase');
+      return;
+    }
+
+    setIsRenaming(true);
+    try {
+      await api.updateJob(id, renameText.trim());
+      toast.success('Project renamed successfully');
+      setIsSettingsOpen(false);
+      refetch();
+    } catch (error: any) {
+      toast.error(error?.detail || 'Failed to rename project');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!id) return;
+
+    if (!window.confirm('Are you sure you want to delete this project? This action cannot be undone and will stop any running containers.')) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await api.deleteJob(id);
+      toast.success('Project deleted successfully');
+      navigate('/dashboard');
+    } catch (error: any) {
+      toast.error(error?.detail || 'Failed to delete project');
+      setIsDeleting(false);
+    }
+  };
+
   const handleFileClick = (filePath: string, fileName: string) => {
     // Check if tab already exists
     const existingTab = tabs.find((tab) => tab.filePath === filePath);
@@ -618,7 +664,16 @@ export default function LiveBuild() {
             <Button variant="ghost" size="icon">
               <Download className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="icon">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => {
+                setIsSettingsOpen(true);
+                if (job) {
+                  setRenameText(job.initial_prompt);
+                }
+              }}
+            >
               <Settings className="w-5 h-5" />
             </Button>
           </div>
@@ -650,6 +705,8 @@ export default function LiveBuild() {
               onTabChange={setActiveTabId}
               onTabClose={handleTabClose}
               tickets={tickets}
+              jobStatus={job?.status}
+              errorMessage={job?.error_message}
             />
           </motion.div>
 
@@ -659,7 +716,7 @@ export default function LiveBuild() {
             animate={{ opacity: 1, y: 0 }}
             className="col-span-12 md:col-span-4 hidden md:block flex h-[550px]"
           >
-            <StatusPanel job={job} steps={steps} />
+            <StatusPanel job={job} steps={steps} tickets={tickets} messages={messages} />
           </motion.div>
 
           <motion.div
@@ -788,6 +845,96 @@ export default function LiveBuild() {
                 >
                   {isContinuing ? 'Submitting...' : 'Submit Requirements'}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Settings Dialog */}
+      {isSettingsOpen && job && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl mx-4 glass">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Project Settings</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    setRenameText('');
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Project Info */}
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Project Information</Label>
+                <div className="p-4 bg-muted/30 rounded-lg space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Status:</span>
+                    <span className="font-medium">{job.status}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Created:</span>
+                    <span className="font-medium">{new Date(job.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Job ID:</span>
+                    <span className="font-mono text-xs">{job.id}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rename Project */}
+              <div className="space-y-2">
+                <Label htmlFor="rename-project">Project Name</Label>
+                <Textarea
+                  id="rename-project"
+                  value={renameText}
+                  onChange={(e) => setRenameText(e.target.value)}
+                  placeholder="Enter project name/description..."
+                  className="min-h-[100px]"
+                  disabled={job.status !== 'collecting'}
+                />
+                <p className="text-sm text-muted-foreground">
+                  {job.status === 'collecting' 
+                    ? 'You can rename the project while it is in the collecting phase.'
+                    : 'Project can only be renamed during the collecting phase.'}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-between items-center pt-4 border-t border-border">
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteJob}
+                  disabled={isDeleting || isRenaming}
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete Project'}
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsSettingsOpen(false);
+                      setRenameText('');
+                    }}
+                    disabled={isDeleting || isRenaming}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleRenameJob}
+                    disabled={isDeleting || isRenaming || !renameText.trim() || job.status !== 'collecting'}
+                  >
+                    {isRenaming ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
