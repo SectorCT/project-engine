@@ -724,7 +724,7 @@ export default function LiveBuild() {
             animate={{ opacity: 1, x: 0 }}
             className="col-span-12 md:col-span-4 hidden md:block"
           >
-            <ArchitecturePanel onFileClick={handleFileClick} />
+            <ArchitecturePanel jobId={id} onFileClick={handleFileClick} />
           </motion.div>
 
           <motion.div
@@ -775,7 +775,7 @@ export default function LiveBuild() {
 
           {/* Mobile: Show Architecture */}
           <div className="col-span-12 md:hidden">
-            <ArchitecturePanel />
+            <ArchitecturePanel jobId={id} onFileClick={handleFileClick} />
           </div>
         </div>
       </div>

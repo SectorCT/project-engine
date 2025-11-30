@@ -402,6 +402,23 @@ class ApiClient {
       method: 'POST',
     });
   }
+
+  // File Structure
+  async getFileStructure(jobId: string, path: string = '/app', limit: number = 200): Promise<{ structure: FileStructureNode[] }> {
+    return this.request<{ structure: FileStructureNode[] }>(`/api/jobs/${jobId}/files/structure/?path=${encodeURIComponent(path)}&limit=${limit}`);
+  }
+
+  // File Content
+  async getFileContent(jobId: string, path: string): Promise<{ path: string; content: string; size: number }> {
+    return this.request<{ path: string; content: string; size: number }>(`/api/jobs/${jobId}/files/content/?path=${encodeURIComponent(path)}`);
+  }
+}
+
+export interface FileStructureNode {
+  name: string;
+  path: string | null;
+  type: 'file' | 'dir';
+  children?: FileStructureNode[];
 }
 
 export const api = new ApiClient(API_BASE_URL);
