@@ -34,10 +34,7 @@ DOCKER_EXCLUDE_PATTERNS: Tuple[str, ...] = (
 
 @lru_cache(maxsize=1)
 def get_docker_client() -> docker.DockerClient:
-    """Return a cached Docker client configured either via settings or env."""
-    base_url = getattr(settings, 'DOCKER_SOCKET_PATH', None)
-    if base_url:
-        return docker.DockerClient(base_url=base_url)
+    """Return a cached Docker client using default Docker socket."""
     return docker.from_env()
 
 

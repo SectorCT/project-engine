@@ -16,11 +16,11 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    for host in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,kulfsteinermarkt.easy-loop.de').split(',')
     if host.strip()
 ]
 if not ALLOWED_HOSTS:
-    ALLOWED_HOSTS = ['localhost']
+    ALLOWED_HOSTS = ['localhost', 'kulfsteinermarkt.easy-loop.de']
 
 INSTALLED_APPS = [
     'django.contrib.admin',

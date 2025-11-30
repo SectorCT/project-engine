@@ -33,13 +33,8 @@ class DockerEnv:
         :param workspace_path: Path to LOCAL workspace (currently unused - container starts empty).
         :param project_id: Unique project ID for persistent container naming. If None, uses default container name.
         """
-        # Allow configuring Docker client (e.g. for Docker Desktop)
-        # docker.from_env() automatically reads DOCKER_HOST environment variable if set.
-        # We can also pass base_url if needed from settings.
-        if settings.DOCKER_SOCKET_PATH:
-             self.client = docker.DockerClient(base_url=settings.DOCKER_SOCKET_PATH)
-        else:
-             self.client = docker.from_env()
+        # Use default Docker socket (docker.from_env() uses DOCKER_HOST env var or default socket)
+        self.client = docker.from_env()
              
         self.workspace_path = os.path.abspath(workspace_path) if workspace_path else None
         self.image_name = "project_engine_builder:latest"

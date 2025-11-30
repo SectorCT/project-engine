@@ -25,10 +25,8 @@ class DockerEnv:
         :param workspace_path: Path to LOCAL workspace (currently unused - container starts empty).
         :param project_id: Job/project identifier used for container naming and port assignment.
         """
-        if settings.DOCKER_SOCKET_PATH:
-            self.client = docker.DockerClient(base_url=settings.DOCKER_SOCKET_PATH)
-        else:
-            self.client = docker.from_env()
+        # Use default Docker socket (docker.from_env() uses DOCKER_HOST env var or default socket)
+        self.client = docker.from_env()
 
         self.workspace_path = os.path.abspath(workspace_path) if workspace_path else None
         self.image_name = "project_engine_builder:latest"
