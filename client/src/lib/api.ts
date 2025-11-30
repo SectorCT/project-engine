@@ -33,6 +33,7 @@ export interface Job {
   requirements_summary: string;
   status: 'collecting' | 'queued' | 'planning' | 'prd_ready' | 'ticketing' | 'tickets_ready' | 'building' | 'build_done' | 'done' | 'failed';
   error_message: string;
+  is_paused?: boolean;
   created_at: string;
   updated_at: string;
   steps?: JobStep[];
@@ -84,12 +85,17 @@ class ApiClient {
   private refreshTokenValue: string | null = null;
   private isRefreshing: boolean = false;
   private refreshPromise: Promise<string | null> | null = null;
+  private onSessionExpired: (() => void) | null = null;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
     // Load tokens from localStorage on initialization
     this.token = localStorage.getItem('access_token');
     this.refreshTokenValue = localStorage.getItem('refresh_token');
+  }
+
+  setOnSessionExpired(callback: () => void) {
+    this.onSessionExpired = callback;
   }
 
   setToken(token: string | null) {
@@ -125,15 +131,28 @@ class ApiClient {
     localStorage.removeItem('refresh_token');
   }
 
+  // Helper function to decode JWT and check if token is expired
+  private isTokenExpired(token: string): boolean {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const exp = payload.exp ? payload.exp * 1000 : null; // Convert to milliseconds
+      if (!exp) return false; // If no expiration, consider it valid
+      return Date.now() >= exp;
+    } catch {
+      return true; // If we can't parse, consider it expired
+    }
+  }
+
   async refreshToken(): Promise<AuthResponse> {
     const refresh = this.getRefreshToken();
     if (!refresh) {
       throw new Error('No refresh token available');
     }
+    // Don't retry on 401 for refresh token endpoint (to avoid infinite loop)
     return this.request<AuthResponse>('/api/auth/token/refresh/', {
       method: 'POST',
       body: JSON.stringify({ refresh }),
-    });
+    }, false); // Set retryOn401 to false to prevent infinite recursion
   }
 
   private async request<T>(
@@ -142,7 +161,28 @@ class ApiClient {
     retryOn401: boolean = true
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    const token = this.getToken();
+    let token = this.getToken();
+
+    // Check if token is expired before making request (except for auth endpoints)
+    if (token && !endpoint.includes('/api/auth/') && this.isTokenExpired(token)) {
+      // Token is expired, try to refresh first
+      if (retryOn401 && this.getRefreshToken()) {
+        try {
+          const authResponse = await this.refreshToken();
+          this.setToken(authResponse.access);
+          this.setRefreshToken(authResponse.refresh);
+          token = authResponse.access;
+        } catch (error) {
+          // Refresh failed, session expired
+          this.handleSessionExpired();
+          throw new Error('Session expired. Please log in again.');
+        }
+      } else {
+        // No refresh token, session expired
+        this.handleSessionExpired();
+        throw new Error('Session expired. Please log in again.');
+      }
+    }
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -162,9 +202,15 @@ class ApiClient {
     if (response.status === 401 && retryOn401 && this.getRefreshToken()) {
       // If already refreshing, wait for that promise
       if (this.isRefreshing && this.refreshPromise) {
-        await this.refreshPromise;
-        // Retry the request with new token
-        return this.request<T>(endpoint, options, false);
+        try {
+          await this.refreshPromise;
+          // Retry the request with new token
+          return this.request<T>(endpoint, options, false);
+        } catch {
+          // Refresh failed while waiting
+          this.handleSessionExpired();
+          throw new Error('Session expired. Please log in again.');
+        }
       }
 
       // Start refresh process
@@ -180,14 +226,20 @@ class ApiClient {
         .catch((error) => {
           this.isRefreshing = false;
           this.refreshPromise = null;
-          // Refresh failed, clear tokens
-          this.clearTokens();
+          // Refresh failed, session expired
+          this.handleSessionExpired();
           throw error;
         });
 
-      await this.refreshPromise;
-      // Retry the request with new token
-      return this.request<T>(endpoint, options, false);
+      try {
+        await this.refreshPromise;
+        // Retry the request with new token
+        return this.request<T>(endpoint, options, false);
+      } catch {
+        // Refresh failed
+        this.handleSessionExpired();
+        throw new Error('Session expired. Please log in again.');
+      }
     }
 
     if (!response.ok) {
@@ -206,6 +258,14 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  private handleSessionExpired() {
+    this.clearTokens();
+    // Notify AuthContext about session expiration
+    if (this.onSessionExpired) {
+      this.onSessionExpired();
+    }
   }
 
   // Authentication
@@ -327,6 +387,19 @@ class ApiClient {
     return this.request<{ detail: string }>(`/api/jobs/${jobId}/continue/`, {
       method: 'POST',
       body: JSON.stringify({ requirements }),
+    });
+  }
+
+  // Pause/Resume
+  async pauseJob(jobId: string): Promise<{ detail: string; is_paused: boolean; status: string }> {
+    return this.request<{ detail: string; is_paused: boolean; status: string }>(`/api/jobs/${jobId}/pause/`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeJob(jobId: string): Promise<{ detail: string; is_paused: boolean; status: string }> {
+    return this.request<{ detail: string; is_paused: boolean; status: string }>(`/api/jobs/${jobId}/resume/`, {
+      method: 'POST',
     });
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
 
 // Derive WebSocket URL from API base URL
 function getWebSocketUrl(): string {
@@ -82,6 +83,13 @@ export function useWebSocket({
     const token = api.getToken();
     if (!token) {
       console.error('No authentication token available for WebSocket connection');
+      toast.error('Your session has expired. Please log in again.', {
+        duration: 5000,
+      });
+      // Redirect to login page if not already there
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        window.location.href = '/login';
+      }
       onError?.(new Event('no_token'));
       return;
     }
@@ -153,6 +161,13 @@ export function useWebSocket({
         // Don't reconnect on authentication errors (403) or unauthorized (4001, 4003)
         if (event.code === 4003 || event.code === 4001 || event.code === 1008) {
           console.error('WebSocket connection closed due to authentication/authorization error. Please check your token.');
+          toast.error('Your session has expired. Please log in again.', {
+            duration: 5000,
+          });
+          // Redirect to login page if not already there
+          if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+            window.location.href = '/login';
+          }
           onError?.(event);
           return;
         }
