@@ -29,7 +29,7 @@ import { toast } from "sonner";
 
 interface Tab {
   id: string;
-  type: "preview" | "code";
+  type: "preview" | "code" | "tickets";
   label: string;
   filePath?: string;
   content?: string;
@@ -48,6 +48,12 @@ export default function LiveBuild() {
       id: "preview",
       type: "preview",
       label: "Live Preview",
+      closable: false,
+    },
+    {
+      id: "tickets",
+      type: "tickets",
+      label: "Tickets",
       closable: false,
     },
   ]);

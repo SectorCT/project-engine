@@ -34,20 +34,31 @@ function TicketItem({ ticket, level = 0, isExpanded = true, onToggle, hasChildre
   const statusKey = ticket.status.toLowerCase().replace("-", "_") as keyof typeof statusColors;
   const statusColor = statusColors[statusKey] || statusColors.todo;
   const typeColor = typeColors[ticket.type] || typeColors.task;
+  const isNested = level > 0;
+
+  const handleClick = () => {
+    // Make the ticket clickable - you can add navigation or modal opening here
+    console.log('Ticket clicked:', ticket.id);
+  };
 
   return (
-    <div className={cn("space-y-1", level > 0 && "ml-4")}>
+    <div className={cn("space-y-1", isNested && "ml-10")}>
       <div
+        onClick={handleClick}
         className={cn(
-          "p-2 rounded text-sm border transition-colors",
+          "p-2 rounded text-sm border transition-colors cursor-pointer hover:opacity-80",
           statusColor,
-          level === 0 && "font-medium"
+          level === 0 && "font-medium",
+          isNested && "bg-background/50 border-l-4 border-l-primary/30"
         )}
       >
         <div className="flex items-start gap-2">
           {hasChildren && onToggle && (
             <button
-              onClick={onToggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
               className="mt-0.5 flex-shrink-0 hover:bg-background/50 rounded p-0.5"
             >
               {isExpanded ? (
@@ -159,25 +170,29 @@ export function TicketsPanel({ tickets }: TicketsPanelProps) {
     const statusTickets = ticketsByStatus[status];
 
     return (
-      <div className="bg-card p-4 rounded-lg border border-border h-full flex flex-col">
-        <h3 className="font-semibold mb-2 text-sm">{label}</h3>
-        <div className="flex-1 overflow-auto space-y-2">
-          {statusTickets.length === 0 ? (
-            <div className="text-xs text-muted-foreground text-center py-4">
-              No tickets
-            </div>
-          ) : (
-            statusTickets.map((ticket) => (
-              <TicketWithChildren key={ticket.id} ticket={ticket} />
-            ))
-          )}
+      <div className="bg-card rounded-lg border border-border h-full flex flex-col overflow-hidden max-h-full">
+        <div className="p-3 border-b border-border flex-shrink-0">
+          <h3 className="font-semibold text-sm">{label}</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 min-h-0">
+          <div className="space-y-2">
+            {statusTickets.length === 0 ? (
+              <div className="text-xs text-muted-foreground text-center py-4">
+                No tickets
+              </div>
+            ) : (
+              statusTickets.map((ticket) => (
+                <TicketWithChildren key={ticket.id} ticket={ticket} />
+              ))
+            )}
+          </div>
         </div>
       </div>
     );
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full w-full">
       {renderStatusColumn("todo", "To Do")}
       {renderStatusColumn("in-progress", "In Progress")}
       {renderStatusColumn("done", "Done")}

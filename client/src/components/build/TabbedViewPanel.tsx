@@ -5,11 +5,12 @@ import { X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Maximize2 } fr
 import { cn } from "@/lib/utils";
 import { LivePreviewContent } from "./LivePreviewContent";
 import { CodeViewer } from "./CodeViewer";
+import { TicketsPanel } from "./TicketsPanel";
 import { Ticket } from "@/lib/api";
 
 interface Tab {
   id: string;
-  type: "preview" | "code";
+  type: "preview" | "code" | "tickets";
   label: string;
   filePath?: string;
   content?: string;
@@ -133,6 +134,12 @@ export const TabbedViewPanel = ({
           <div className="h-full p-4 flex items-start justify-center">
             <div className={cn("w-full h-full mx-auto flex items-start justify-center", deviceDimensions[device])}>
               <LivePreviewContent device={device} tickets={tickets} />
+            </div>
+          </div>
+        ) : activeTab.type === "tickets" ? (
+          <div className="h-full p-4 flex items-center justify-center">
+            <div className="w-full mx-auto aspect-video max-w-full">
+              <TicketsPanel tickets={tickets} />
             </div>
           </div>
         ) : (
