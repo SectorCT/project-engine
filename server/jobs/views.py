@@ -1,6 +1,8 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import FieldError
+from django.db import DatabaseError
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -223,42 +225,70 @@ class JobViewSet(
         """Pause a running job. Tasks will exit gracefully at the next pause check."""
         job = self.get_object()
         
-        # Can't pause if already paused, completed, or failed
-        if job.is_paused:
-            return Response({'detail': 'Job is already paused.'}, status=status.HTTP_400_BAD_REQUEST)
-        if job.status in {Job.Status.BUILD_DONE, Job.Status.FAILED}:
+        try:
+            # Check if is_paused field exists (migration may not have been run)
+            if not hasattr(job, 'is_paused'):
+                return Response(
+                    {'detail': 'Pause functionality is not available. Database migration may be required.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            
+            # Can't pause if already paused, completed, or failed
+            if job.is_paused:
+                return Response({'detail': 'Job is already paused.'}, status=status.HTTP_400_BAD_REQUEST)
+            if job.status in {Job.Status.BUILD_DONE, Job.Status.FAILED}:
+                return Response(
+                    {'detail': 'Cannot pause a job that is already completed or failed.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            paused_job = pause_job(str(job.id))
             return Response(
-                {'detail': 'Cannot pause a job that is already completed or failed.'},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    'detail': 'Job paused successfully.',
+                    'is_paused': paused_job.is_paused,
+                    'status': paused_job.status,
+                },
+                status=status.HTTP_200_OK,
             )
-        
-        paused_job = pause_job(str(job.id))
-        return Response(
-            {
-                'detail': 'Job paused successfully.',
-                'is_paused': paused_job.is_paused,
-                'status': paused_job.status,
-            },
-            status=status.HTTP_200_OK,
-        )
+        except (DatabaseError, FieldError) as exc:
+            logger.exception('Database error while pausing job %s: %s', job.id, exc)
+            return Response(
+                {'detail': 'Database error. The pause feature may require a migration to be applied.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=True, methods=('post',), url_path='resume')
     def resume_job_action(self, request, id=None):
         """Resume a paused job. Re-queues the appropriate task based on current status."""
         job = self.get_object()
         
-        if not job.is_paused:
-            return Response({'detail': 'Job is not paused.'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        resumed_job = resume_job(str(job.id))
-        return Response(
-            {
-                'detail': 'Job resumed successfully. Execution will continue from current phase.',
-                'is_paused': resumed_job.is_paused,
-                'status': resumed_job.status,
-            },
-            status=status.HTTP_200_OK,
-        )
+        try:
+            # Check if is_paused field exists (migration may not have been run)
+            if not hasattr(job, 'is_paused'):
+                return Response(
+                    {'detail': 'Resume functionality is not available. Database migration may be required.'},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            
+            if not job.is_paused:
+                return Response({'detail': 'Job is not paused.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            resumed_job = resume_job(str(job.id))
+            return Response(
+                {
+                    'detail': 'Job resumed successfully. Execution will continue from current phase.',
+                    'is_paused': resumed_job.is_paused,
+                    'status': resumed_job.status,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except (DatabaseError, FieldError) as exc:
+            logger.exception('Database error while resuming job %s: %s', job.id, exc)
+            return Response(
+                {'detail': 'Database error. The resume feature may require a migration to be applied.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 class AppViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = (IsAuthenticated,)

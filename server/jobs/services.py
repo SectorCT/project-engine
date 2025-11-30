@@ -618,12 +618,21 @@ def pause_job(job_id: str) -> Job:
     Pause a running job. Tasks will check this flag and exit gracefully.
     Returns the updated job.
     """
+    from django.core.exceptions import FieldError
+    from django.db import DatabaseError
+    
     with transaction.atomic():
         job = Job.objects.select_for_update().get(id=job_id)
+        if not hasattr(job, 'is_paused'):
+            raise FieldError('is_paused field does not exist. Migration may not have been applied.')
         if job.is_paused:
             return job  # Already paused
-        job.is_paused = True
-        job.save(update_fields=['is_paused', 'updated_at'])
+        try:
+            job.is_paused = True
+            job.save(update_fields=['is_paused', 'updated_at'])
+        except (DatabaseError, FieldError) as exc:
+            logger.error('Failed to save is_paused field for job %s: %s', job_id, exc)
+            raise
     
     broadcast_job_event(
         str(job.id),
@@ -650,14 +659,22 @@ def resume_job(job_id: str) -> Job:
     Resume a paused job. Re-queues the appropriate task based on current status.
     Returns the updated job.
     """
+    from django.core.exceptions import FieldError
+    from django.db import DatabaseError
     from .tasks import continue_job_task, run_job_task, run_ticket_builder_task
     
     with transaction.atomic():
         job = Job.objects.select_for_update().get(id=job_id)
+        if not hasattr(job, 'is_paused'):
+            raise FieldError('is_paused field does not exist. Migration may not have been applied.')
         if not job.is_paused:
             return job  # Not paused
-        job.is_paused = False
-        job.save(update_fields=['is_paused', 'updated_at'])
+        try:
+            job.is_paused = False
+            job.save(update_fields=['is_paused', 'updated_at'])
+        except (DatabaseError, FieldError) as exc:
+            logger.error('Failed to save is_paused field for job %s: %s', job_id, exc)
+            raise
     
     broadcast_job_event(
         str(job.id),
