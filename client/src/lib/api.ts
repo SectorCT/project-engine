@@ -31,7 +31,7 @@ export interface Job {
   initial_prompt: string;
   prompt: string;
   requirements_summary: string;
-  status: 'collecting' | 'queued' | 'planning' | 'prd_ready' | 'ticketing' | 'tickets_ready' | 'building' | 'build_done' | 'done' | 'failed';
+  status: 'collecting' | 'queued' | 'planning' | 'prd_ready' | 'ticketing' | 'tickets_ready' | 'building' | 'running' | 'build_done' | 'done' | 'failed';
   error_message: string;
   is_paused?: boolean;
   created_at: string;
@@ -190,7 +190,7 @@ class ApiClient {
     };
 
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      (headers as any)['Authorization'] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {

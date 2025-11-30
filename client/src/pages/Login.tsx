@@ -33,7 +33,7 @@ declare global {
   }
 }
 
-const particleVariants = {
+const particleVariants: any = {
   animate: {
     y: [0, -20, 0],
     opacity: [0.3, 0.6, 0.3],

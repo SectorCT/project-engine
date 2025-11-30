@@ -71,7 +71,7 @@ const activityColors = {
   error: "text-error",
 };
 
-const StatusIndicator = ({ status }: { status: Agent["status"] }) => {
+const StatusIndicator = ({ status }: { status: "idle" | "working" | "waiting" | "complete" }) => {
   if (status === "complete") {
     return <CheckCircle2 className="w-4 h-4 text-success" />;
   } else if (status === "working") {
@@ -135,7 +135,12 @@ export const StatusPanel = ({ job, steps = [], tickets = [], messages = [] }: St
   // Create activity log from steps and messages
   const recentSteps = steps.slice(-5).reverse();
   const recentMessages = messages?.slice(-3).reverse() || [];
-  const activity = [
+  const activity: Array<{
+    id: string;
+    type: "info" | "success" | "warning" | "error";
+    message: string;
+    timestamp: string;
+  }> = [
     ...recentSteps.map((step) => ({
       id: step.id,
       type: "info" as const,
@@ -144,7 +149,7 @@ export const StatusPanel = ({ job, steps = [], tickets = [], messages = [] }: St
     })),
     ...recentMessages.map((msg) => ({
       id: msg.id,
-      type: msg.role === 'system' ? "info" as const : msg.role === 'user' ? "success" as const : "info" as const,
+      type: (msg.role === 'system' ? "info" : msg.role === 'user' ? "success" : "info") as "info" | "success" | "warning" | "error",
       message: `${msg.sender || 'System'}: ${msg.content.substring(0, 60)}${msg.content.length > 60 ? '...' : ''}`,
       timestamp: formatTimestamp(msg.created_at),
     })),

@@ -9,7 +9,7 @@ import { Github } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-const particleVariants = {
+const particleVariants: any = {
   animate: {
     y: [0, -20, 0],
     opacity: [0.3, 0.6, 0.3],
