@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, parseUrls } from "@/lib/utils";
 import { Search, MessageSquare, Send, Trash2 } from "lucide-react";
 import { JobMessage, JobStep, api } from "@/lib/api";
 import { toast } from "sonner";
@@ -252,7 +252,9 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
                   )}
                 </div>
                   <p className="text-xs text-foreground mb-0.5 whitespace-pre-wrap">
-                  {message.content}
+                  {parseUrls(message.content).map((part, idx) => 
+                    typeof part === 'string' ? <span key={idx}>{part}</span> : part
+                  )}
                 </p>
                 <span className="text-[10px] text-muted-foreground">
                   {message.timestamp}

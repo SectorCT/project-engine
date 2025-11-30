@@ -23,28 +23,54 @@ Each story should be a small, logical step that's easy for AI to execute.
         self.project_structure = None  # Will be set before generating tickets
 
     def generate_epics(self, prd_content: str) -> List[Dict]:
-        """Step 1: Generate Epics only"""
+        """Step 1: Generate Epics only - separate frontend and backend epics"""
         structure_context = ""
         if self.project_structure:
             structure_context = f"\n\nPROJECT STRUCTURE (already initialized - DO NOT create setup tasks):\n{self.project_structure}"
         
+        # Check if project has both frontend and backend
+        has_frontend = "Frontend:" in str(self.project_structure) if self.project_structure else True
+        has_backend = "Backend:" in str(self.project_structure) if self.project_structure else True
+        
         prompt = f"""Here is the PRD. Identify the major feature areas (Epics).
+
+**CRITICAL: CREATE SEPARATE EPICS FOR FRONTEND AND BACKEND**
+
+Check the PROJECT STRUCTURE above:
+- If it shows "Frontend: Vite + React + TypeScript", create FRONTEND epics
+- If it shows "Backend: Express.js + TypeScript", create BACKEND epics
+- If BOTH exist, create TWO SETS of epics: one for frontend, one for backend
+
 DO NOT create a "Project Setup" epic - the project structure is already initialized automatically.
 
 PRD CONTENT:
 {prd_content}{structure_context}
 
-Provide ONLY a JSON list of Epic objects. Each Epic should have:
-- "id": A temporary ID as a string (e.g. "1", "2")
-- "type": "epic"
-- "title": Short summary
-- "description": What this epic covers
-- "assigned_to": Role (e.g., "Frontend Dev", "Backend Dev", "Designer")
+**EPIC NAMING CONVENTION:**
+- For each feature area, create TWO epics if both frontend and backend exist:
+  - Backend Epic: "Feature Name (Backend)" - e.g., "User Management (Backend)"
+  - Frontend Epic: "Feature Name (Frontend)" - e.g., "User Management (Frontend)"
+- If only one exists, create epics for that type only
 
-Example:
+**CRITICAL: Authentication Epics MUST Include Both Login AND Signup**
+- If creating any authentication/user login epic, you MUST ensure it includes BOTH login AND signup/registration.
+- Authentication epics should cover: user registration (signup), user login, authentication flows.
+- Do NOT create epics that only mention "login" or "authentication" without also including "signup" or "registration".
+- Example: "User Authentication (Backend)" should include both login and signup endpoints, not just login.
+
+Provide ONLY a JSON list of Epic objects. Each Epic should have:
+- "id": A temporary ID as a string (e.g., "1", "2", "3", "4")
+- "type": "epic"
+- "title": Short summary with "(Backend)" or "(Frontend)" suffix if both exist
+- "description": What this epic covers (backend APIs/data or frontend UI/components)
+- "assigned_to": "Backend Dev" for backend epics, "Frontend Dev" for frontend epics
+
+Example (when both frontend and backend exist):
 [
-  {{"id": "1", "type": "epic", "title": "User Authentication", "description": "Login, Signup flows...", "assigned_to": "Backend Dev"}},
-  {{"id": "2", "type": "epic", "title": "Dashboard UI", "description": "Main dashboard interface...", "assigned_to": "Frontend Dev"}}
+  {{"id": "1", "type": "epic", "title": "User Management (Backend)", "description": "User registration, authentication APIs, user data models...", "assigned_to": "Backend Dev"}},
+  {{"id": "2", "type": "epic", "title": "User Management (Frontend)", "description": "User registration forms, login UI, profile pages...", "assigned_to": "Frontend Dev"}},
+  {{"id": "3", "type": "epic", "title": "Post Management (Backend)", "description": "Post creation APIs, like/comment endpoints, data models...", "assigned_to": "Backend Dev"}},
+  {{"id": "4", "type": "epic", "title": "Post Management (Frontend)", "description": "Post creation forms, feed display, like/comment UI...", "assigned_to": "Frontend Dev"}}
 ]
 """
         response_text = self.get_response(prompt)
@@ -75,6 +101,39 @@ EPIC DETAILS:
 PRD CONTENT (for context):
 {prd_content}{structure_info}
 
+**CRITICAL: EPIC TYPE DETERMINES STORY TYPE**
+Look at the Epic title and "assigned_to" field:
+- If the Epic title contains "(Backend)" or assigned_to is "Backend Dev" → Create ONLY BACKEND stories
+- If the Epic title contains "(Frontend)" or assigned_to is "Frontend Dev" → Create ONLY FRONTEND stories
+
+**BACKEND EPIC STORIES** (if this is a backend epic):
+- Create stories for: data models/schemas, API endpoints, business logic, database operations
+- Use "assigned_to": "Backend Dev"
+- Files will be in server/ directory
+- Order: Data models/schemas FIRST, then API endpoints that use them
+
+**FRONTEND EPIC STORIES** (if this is a frontend epic):
+- Create stories for: UI components, pages, API integration, user interactions, forms, displays
+- Use "assigned_to": "Frontend Dev"
+- Files will be in src/ directory
+- Order: UI components FIRST, then API integration that uses them
+- **CRITICAL: If this epic is about authentication/login, you MUST create BOTH login AND signup stories:**
+  - "Create Login Page UI" story
+  - "Create Signup Page UI" OR "Create Registration Page UI" story
+  - "Integrate Login API" story
+  - "Integrate Signup API" OR "Integrate Registration API" story
+  - NEVER create only login stories without signup stories
+
+DO NOT mix frontend and backend stories in the same epic. This epic should only contain stories matching its type.
+
+Example for "User Registration" epic:
+- Backend: "Create User Registration Schema" (assigned_to: "Backend Dev")
+- Backend: "Implement User Registration Endpoint" (assigned_to: "Backend Dev")
+- Frontend: "Create Registration Form Component" (assigned_to: "Frontend Dev")
+- Frontend: "Integrate Registration Form with API" (assigned_to: "Frontend Dev")
+
+The frontend stories will depend on backend stories (dependencies will be set automatically, but create them in logical order).
+
 REQUIREMENTS FOR STORIES:
 1. Break down into SMALL, ATOMIC tasks. Each story should be one logical step.
 2. Each story description MUST include these sections:
@@ -86,6 +145,7 @@ REQUIREMENTS FOR STORIES:
 3. Be VERY detailed and specific. The AI coder needs clear instructions.
 4. DO NOT create deployment, hosting, or CI/CD tasks - those are automated.
 5. Use TypeScript for all code (frontend: React+TS, backend: Express+TS).
+6. For "assigned_to", use "Backend Dev" for backend tasks and "Frontend Dev" for frontend tasks.
 
 **CRITICAL SIMPLICITY RULES:**
 - If there is NO BACKEND, DO NOT suggest databases, SQL, or any data storage systems.
@@ -93,6 +153,25 @@ REQUIREMENTS FOR STORIES:
 - Examples: fun facts → `src/data/funFacts.json`, color palettes → `src/data/colors.json`, shape definitions → `src/data/shapes.json`
 - Keep it simple: JSON files for data, components for UI, utilities for helpers.
 - Only use databases/backend storage if the project explicitly requires a backend (user data, authentication, real-time updates, etc.).
+
+**CRITICAL AUTHENTICATION RULES:**
+- **MANDATORY PAIRING**: If you create ANY login/authentication functionality, you MUST also create signup/registration functionality.
+- Login and Signup are ALWAYS created together - never create one without the other.
+- **FRONTEND AUTHENTICATION**: If you create ANY frontend login UI/story, you MUST create BOTH:
+  1. "Create Login Page UI" OR "Create Login Form Component" story
+  2. "Create Signup Page UI" OR "Create Registration Form Component" story
+  3. "Integrate Login API" story
+  4. "Integrate Signup API" OR "Integrate Registration API" story
+- **BACKEND AUTHENTICATION**: If you create ANY backend login endpoint/story, you MUST create BOTH:
+  1. "Implement User Login Endpoint" story
+  2. "Implement User Registration Endpoint" OR "Implement User Signup Endpoint" story
+- **NEVER create only login without signup** - this is a critical error.
+- If creating a "Login" story, you MUST also create a "Signup" or "Registration" story in the SAME epic.
+- If creating a "Login Form" component, you MUST also create a "Signup Form" or "Registration Form" component.
+- If creating a "Login Endpoint" API, you MUST also create a "Signup Endpoint" or "Registration Endpoint" API.
+- Both login and signup should be part of the same epic or related epics.
+- **Example Frontend Epic**: "User Authentication (Frontend)" MUST include: Login Page UI, Signup Page UI, Integrate Login API, Integrate Signup API (4 stories minimum).
+- **Example Backend Epic**: "User Authentication (Backend)" MUST include: User Schema, Login Endpoint, Registration Endpoint, Secure Password Storage (4 stories minimum).
 
 **CRITICAL INTEGRATION RULES:**
 - When creating components, ALWAYS specify WHERE they should be used (root page, specific route, nested component, etc.).
@@ -112,10 +191,18 @@ Provide ONLY a JSON list of Story objects. Each Story should have:
 
 CRITICAL: parent_id MUST be "{epic_id}" for ALL stories.
 
-**IMPORTANT JSON FORMATTING RULE:**
-You are writing JSON. All strings must be properly escaped.
-Do NOT put literal newlines inside the "description" string.
-Use `\\n` for newlines.
+**CRITICAL JSON FORMATTING RULES:**
+1. You are writing VALID JSON. The response MUST be parseable JSON - test it mentally.
+2. All strings must be properly escaped. Do NOT put literal newlines inside string values.
+3. Use `\\n` for newlines, `\\t` for tabs, `\\"` for quotes inside strings.
+4. If a description is very long, use `\\n` to separate sections, but keep the entire string on ONE LINE in the JSON.
+5. Common mistake - DO NOT write:
+   "description": "Line 1
+   Line 2"
+   
+   Instead write:
+   "description": "Line 1\\nLine 2"
+6. Before responding, verify your JSON is valid - it must parse without errors.
 
 Example Descriptions:
 
@@ -130,6 +217,19 @@ For FRONTEND data tasks (NO backend):
 
 For FRONTEND integration tasks:
 "Context: We have created Shape components and fun facts data. Now we need to display them on the main page.\\n\\nGoal: Integrate the Shape component and fun facts data into the root App.tsx page to display all shapes with their facts.\\n\\nDevelopment Plan:\\n1. Import Shape component from src/components/Shape.tsx into src/App.tsx\\n2. Import funFacts data from src/data/funFacts.json\\n3. Replace the existing placeholder content in App.tsx's return statement\\n4. Map over the funFacts array to render each shape with its facts\\n5. Pass shape type and facts as props to the Shape component\\n\\nFiles Needed:\\n- src/App.tsx (modify - replace the existing return statement)\\n- src/components/Shape.tsx (already created, will be imported)\\n- src/data/funFacts.json (already created, will be imported)\\n\\nImplementation: In App.tsx, replace the current return statement with a layout that maps over funFacts. For each item, render a Shape component with shapeType={{item.shape}} and display the facts array below it. This will be the root page (/) of the website."
+
+For FRONTEND API integration (for frontend epics):
+"Context: The backend API endpoint for user registration is ready. We need to create a frontend form that calls this API.\\n\\nGoal: Create a registration form component that sends user data to the backend API endpoint.\\n\\nDevelopment Plan:\\n1. Create src/components/RegistrationForm.tsx component\\n2. Add form fields (email, password, username) with React state management\\n3. Add form validation (email format, password strength)\\n4. Implement API call to POST /api/register using fetch or axios\\n5. Handle success (redirect/show success message) and error (display error message)\\n6. Add loading state during API call\\n\\nFiles Needed:\\n- src/components/RegistrationForm.tsx (create)\\n- src/utils/api.ts (create or modify - add API helper functions)\\n\\nImplementation: Create a React functional component with useState for form fields. Use fetch() to POST to http://localhost:5000/api/register with JSON body. Handle response and update UI accordingly. This component will be used in the registration page."
+
+**CRITICAL EXAMPLE: Correct Authentication Epic Stories (Frontend)**
+If creating a "User Authentication (Frontend)" epic, you MUST create ALL of these stories:
+1. "Create Login Page UI" - Story for building the login page/component
+2. "Create Signup Page UI" OR "Create Registration Page UI" - Story for building the signup page/component
+3. "Integrate Login API" - Story for connecting login UI to backend API
+4. "Integrate Signup API" OR "Integrate Registration API" - Story for connecting signup UI to backend API
+
+**WRONG**: Creating only "Create Login Page UI" and "Integrate Login API" (missing signup)
+**CORRECT**: Creating all 4 stories above (login UI, signup UI, login API integration, signup API integration)
 
 DO NOT include dependencies yet - that will be determined in the next step.
 """
@@ -149,51 +249,10 @@ DO NOT include dependencies yet - that will be determined in the next step.
                 if start != -1 and end != -1:
                     cleaned_text = cleaned_text[start:end+1]
             
-            # Fix literal newlines in JSON strings (common issue)
-            # The model sometimes includes literal newlines instead of escaped ones
-            import re
-            # Simple approach: replace literal newlines/tabs/carriage returns that appear
-            # between quotes (but not escaped ones)
-            # This regex matches: " then any chars (including newlines) until the next unescaped "
-            def fix_string_newlines(text):
-                # Replace literal control characters within string values
-                # We'll do this by finding string patterns and fixing them
-                result = []
-                i = 0
-                in_string = False
-                escape_next = False
-                
-                while i < len(text):
-                    char = text[i]
-                    
-                    if escape_next:
-                        result.append(char)
-                        escape_next = False
-                    elif char == '\\':
-                        result.append(char)
-                        escape_next = True
-                    elif char == '"' and not escape_next:
-                        in_string = not in_string
-                        result.append(char)
-                    elif in_string:
-                        # Inside a string - escape control characters
-                        if char == '\n':
-                            result.append('\\n')
-                        elif char == '\r':
-                            result.append('\\r')
-                        elif char == '\t':
-                            result.append('\\t')
-                        else:
-                            result.append(char)
-                    else:
-                        result.append(char)
-                    
-                    i += 1
-                
-                return ''.join(result)
-            
             # Try parsing first
             stories = json.loads(cleaned_text)
+            # Validate and add missing signup stories
+            stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
             return stories
         except json.JSONDecodeError as e:
             # Log the actual parsing error for debugging
@@ -207,15 +266,187 @@ DO NOT include dependencies yet - that will be determined in the next step.
                 print(f"Context: ...{cleaned_text[start:end]}...")
             
             # Try to fix literal newlines in string values
+            def fix_string_newlines(text):
+                """Replace literal control characters within JSON string values with escaped versions."""
+                result = []
+                i = 0
+                in_string = False
+                escape_next = False
+                
+                while i < len(text):
+                    char = text[i]
+                    
+                    if escape_next:
+                        # We just saw a backslash, this char is escaped
+                        result.append(char)
+                        escape_next = False
+                        i += 1
+                        continue
+                    
+                    if char == '\\':
+                        result.append(char)
+                        escape_next = True
+                        i += 1
+                        continue
+                    
+                    if char == '"':
+                        in_string = not in_string
+                        result.append(char)
+                        i += 1
+                        continue
+                    
+                    if in_string:
+                        # Inside a string - escape control characters that aren't already escaped
+                        if char == '\n':
+                            result.append('\\n')
+                        elif char == '\r':
+                            result.append('\\r')
+                        elif char == '\t':
+                            result.append('\\t')
+                        elif char == '\b':
+                            result.append('\\b')
+                        elif char == '\f':
+                            result.append('\\f')
+                        else:
+                            result.append(char)
+                    else:
+                        result.append(char)
+                    
+                    i += 1
+                
+                return ''.join(result)
+            
+            # Try to fix and parse again
             try:
                 fixed_text = fix_string_newlines(cleaned_text)
                 stories = json.loads(fixed_text)
                 print(f"Successfully parsed after fixing newlines.")
+                # Validate and add missing signup stories
+                stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
                 return stories
             except json.JSONDecodeError as e2:
-                print(f"Still failed after fix attempt. Error: {e2}")
-                print(f"Raw response (first 500 chars):\n{response_text[:500]}")
-                return []
+                # Try one more time with the improved fix function
+                # Sometimes the first attempt misses edge cases
+                try:
+                    # Apply the fix again - sometimes it needs multiple passes
+                    fixed_text = fix_string_newlines(cleaned_text)
+                    # Try parsing
+                    stories = json.loads(fixed_text)
+                    print(f"Successfully parsed after second fix attempt.")
+                    # Validate and add missing signup stories
+                    stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
+                    return stories
+                except (json.JSONDecodeError, Exception) as e3:
+                    print(f"Still failed after aggressive fix attempt. Error: {e3}")
+                    print(f"Raw response (first 500 chars):\n{response_text[:500]}")
+                    # Last resort: try to extract just the array and manually fix
+                    try:
+                        # Find the JSON array boundaries
+                        array_start = cleaned_text.find('[')
+                        array_end = cleaned_text.rfind(']')
+                        if array_start != -1 and array_end != -1:
+                            array_text = cleaned_text[array_start:array_end+1]
+                            # Try one more time with the character-by-character fix
+                            array_fixed = fix_string_newlines(array_text)
+                            stories = json.loads(array_fixed)
+                            print(f"Successfully parsed after extracting array and fixing.")
+                            # Validate and add missing signup stories
+                            stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
+                            return stories
+                    except:
+                        pass
+                    return []
+
+    def _validate_and_add_signup_stories(self, stories: List[Dict], epic_id: str, epic_title: str) -> List[Dict]:
+        """Validate that login stories have corresponding signup stories, and add missing ones."""
+        if not stories:
+            return stories
+        
+        # Check if this epic is about authentication/login
+        epic_title_lower = epic_title.lower()
+        is_auth_epic = any(keyword in epic_title_lower for keyword in ['login', 'authentication', 'auth', 'user management'])
+        
+        if not is_auth_epic:
+            return stories
+        
+        # Find login-related stories
+        login_stories = []
+        signup_stories = []
+        
+        for story in stories:
+            title_lower = story.get('title', '').lower()
+            if any(keyword in title_lower for keyword in ['login', 'log in']):
+                login_stories.append(story)
+            elif any(keyword in title_lower for keyword in ['signup', 'sign up', 'registration', 'register']):
+                signup_stories.append(story)
+        
+        # If we have login stories but no signup stories, add them
+        if login_stories and not signup_stories:
+            print(f"⚠️  WARNING: Found login stories without signup stories in epic '{epic_title}'. Adding missing signup stories...")
+            
+            # Determine if this is a backend or frontend epic
+            is_backend = any(keyword in epic_title_lower for keyword in ['backend', 'api', 'server'])
+            is_frontend = any(keyword in epic_title_lower for keyword in ['frontend', 'ui', 'ux', 'page', 'component'])
+            
+            # Get the highest story ID to continue numbering
+            max_id = 0
+            for story in stories:
+                try:
+                    story_id = int(story.get('id', '0'))
+                    max_id = max(max_id, story_id)
+                except:
+                    pass
+            
+            new_stories = []
+            
+            if is_backend:
+                # Add backend signup endpoint story
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Implement User Registration Endpoint",
+                    "description": "Context: Users need to be able to create new accounts. We have a login endpoint but users cannot register.\\n\\nGoal: Create an API endpoint for user registration that accepts email and password, validates input, hashes the password, and stores the user in the database.\\n\\nDevelopment Plan:\\n1. Create POST /api/register route in server/routes/auth.ts\\n2. Add validation middleware for email/password format\\n3. Check if user already exists (email uniqueness)\\n4. Hash password using bcrypt before storing\\n5. Create user record in database\\n6. Return success response or error if registration fails\\n\\nFiles Needed:\\n- server/routes/auth.ts (create or modify)\\n- server/middleware/validation.ts (create or modify)\\n- server/utils/bcrypt.ts (create or modify)\\n\\nImplementation: Create POST endpoint that accepts {email, password}, validates format, checks for existing user, hashes password with bcrypt, saves to MongoDB, returns 201 on success or 400/409 on failure.",
+                    "assigned_to": "Backend Dev",
+                    "parent_id": epic_id
+                })
+            elif is_frontend:
+                # Add frontend signup page and API integration stories
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Create Signup Page UI",
+                    "description": "Context: Users need to be able to create new accounts. We have a login page but no signup page.\\n\\nGoal: Create a signup/registration page component that allows users to register with email and password.\\n\\nDevelopment Plan:\\n1. Create src/pages/Signup.tsx or src/components/SignupForm.tsx\\n2. Add form fields: email, password, confirm password\\n3. Add form validation (email format, password strength, password match)\\n4. Add form state management with React useState\\n5. Style the form to match the login page design\\n6. Add error handling and display error messages\\n\\nFiles Needed:\\n- src/pages/Signup.tsx (create) OR src/components/SignupForm.tsx (create)\\n- src/App.tsx (modify - add route for signup page)\\n\\nImplementation: Create a React functional component with form fields for email, password, and confirm password. Use useState for form state. Add validation for email format and password match. Style consistently with the login page. This will be accessible at /signup route.",
+                    "assigned_to": "Frontend Dev",
+                    "parent_id": epic_id
+                })
+                
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Integrate Signup API",
+                    "description": "Context: We have created a signup page UI and a backend registration endpoint. Now we need to connect them.\\n\\nGoal: Integrate the signup form with the backend registration API endpoint.\\n\\nDevelopment Plan:\\n1. Add signup API function to src/utils/api.ts\\n2. Import and use the signup API function in the signup page/component\\n3. Call the API on form submission\\n4. Handle success (redirect to login or auto-login)\\n5. Handle errors (display error messages)\\n6. Add loading state during API call\\n\\nFiles Needed:\\n- src/utils/api.ts (modify - add signup/register function)\\n- src/pages/Signup.tsx or src/components/SignupForm.tsx (modify - add API integration)\\n\\nImplementation: In the signup component, add an onSubmit handler that calls the signup API function with form data. Use fetch() to POST to /api/register. On success, either redirect to login page or automatically log the user in. On error, display the error message to the user.",
+                    "assigned_to": "Frontend Dev",
+                    "parent_id": epic_id
+                })
+            else:
+                # Generic case - add both backend and frontend signup stories
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Implement User Registration",
+                    "description": "Context: Users need to be able to create new accounts. We have login functionality but no registration.\\n\\nGoal: Create user registration functionality (backend endpoint and/or frontend UI) to allow new users to sign up.\\n\\nDevelopment Plan:\\n1. Create registration endpoint (if backend) or registration UI (if frontend)\\n2. Add validation for email and password\\n3. Hash passwords before storing (if backend)\\n4. Handle success and error cases\\n\\nFiles Needed:\\n- server/routes/auth.ts (create or modify) OR src/pages/Signup.tsx (create)\\n\\nImplementation: Implement user registration following the same patterns as login, ensuring password hashing and validation.",
+                    "assigned_to": "Backend Dev" if is_backend else "Frontend Dev",
+                    "parent_id": epic_id
+                })
+            
+            stories.extend(new_stories)
+            print(f"✅ Added {len(new_stories)} missing signup/registration story(ies)")
+        
+        return stories
 
     def generate_dependencies(self, all_epics: List[Dict], all_stories: List[Dict], prd_content: str) -> Dict[str, Dict[str, List[str]]]:
         """Step 3: Generate dependencies between Epics and Stories"""
@@ -238,20 +469,36 @@ Think logically about the order:
 - Stories can depend on other Stories.
 - Base features should come before dependent features.
 
+**CRITICAL DEPENDENCY RULES:**
+1. **Frontend Epics depend on Backend Epics**: If there's a "Feature (Frontend)" epic, it should depend on the corresponding "Feature (Backend)" epic.
+   - Example: "User Management (Frontend)" depends on "User Management (Backend)"
+2. **Backend stories come FIRST**: Data models/schemas must be created before API endpoints that use them.
+3. **API endpoints come BEFORE frontend integration**: Backend endpoints must exist before frontend can call them.
+4. **Frontend stories depend on backend stories**: If a frontend story calls a backend API, it MUST depend on the backend story that creates that API.
+5. **Frontend UI components can be created independently**, but API integration stories must depend on backend endpoints.
+
+Example dependencies:
+- "Create User Schema" → no dependencies
+- "Create User Registration Endpoint" → depends on ["Create User Schema"]
+- "Create Registration Form Component" → no dependencies (can be created independently)
+- "Integrate Registration Form with API" → depends on ["Create User Registration Endpoint", "Create Registration Form Component"]
+
 Provide ONLY a JSON object with two keys: "epics" and "stories".
 Each maps ticket IDs to their dependency lists.
 
-Example:
+Example (with separate frontend/backend epics):
 {{
   "epics": {{
-    "1": [],  // Base Epic - No dependencies
-    "2": ["1"]  // Feature Epic - Depends on Base
+    "1": [],  // Backend Epic: User Management (Backend) - no dependencies
+    "2": ["1"],  // Frontend Epic: User Management (Frontend) - depends on backend epic
+    "3": [],  // Backend Epic: Post Management (Backend) - no dependencies
+    "4": ["3"]  // Frontend Epic: Post Management (Frontend) - depends on backend epic
   }},
   "stories": {{
-    "10": [],  // Base Task 1
-    "11": ["10"],  // Base Task 2 - Depends on Task 1
-    "20": ["11"],  // Feature Task - Depends on Base Tasks
-    "21": ["20"]
+    "10": [],  // Backend story: Create User Schema - no dependencies
+    "11": ["10"],  // Backend story: Create Registration Endpoint - depends on schema
+    "12": [],  // Frontend story: Create Registration Form Component - no dependencies (UI only)
+    "13": ["11", "12"]  // Frontend story: Integrate Form with API - depends on both backend endpoint and frontend component
   }}
 }}
 
@@ -259,6 +506,7 @@ IMPORTANT:
 - Avoid circular dependencies
 - Epic dependencies: Epics can depend on other Epics
 - Story dependencies: Stories can depend on other Stories (not Epics - use parent_id for that)
+- Frontend API integration stories MUST depend on their corresponding backend API endpoint stories
 """
         response_text = self.get_response(prompt)
         

@@ -52,6 +52,12 @@ PRD CONTENT:
   - Frontend Epic: "Feature Name (Frontend)" - e.g., "User Management (Frontend)"
 - If only one exists, create epics for that type only
 
+**CRITICAL: Authentication Epics MUST Include Both Login AND Signup**
+- If creating any authentication/user login epic, you MUST ensure it includes BOTH login AND signup/registration.
+- Authentication epics should cover: user registration (signup), user login, authentication flows.
+- Do NOT create epics that only mention "login" or "authentication" without also including "signup" or "registration".
+- Example: "User Authentication (Backend)" should include both login and signup endpoints, not just login.
+
 Provide ONLY a JSON list of Epic objects. Each Epic should have:
 - "id": A temporary ID as a string (e.g., "1", "2", "3", "4")
 - "type": "epic"
@@ -111,6 +117,12 @@ Look at the Epic title and "assigned_to" field:
 - Use "assigned_to": "Frontend Dev"
 - Files will be in src/ directory
 - Order: UI components FIRST, then API integration that uses them
+- **CRITICAL: If this epic is about authentication/login, you MUST create BOTH login AND signup stories:**
+  - "Create Login Page UI" story
+  - "Create Signup Page UI" OR "Create Registration Page UI" story
+  - "Integrate Login API" story
+  - "Integrate Signup API" OR "Integrate Registration API" story
+  - NEVER create only login stories without signup stories
 
 DO NOT mix frontend and backend stories in the same epic. This epic should only contain stories matching its type.
 
@@ -141,6 +153,25 @@ REQUIREMENTS FOR STORIES:
 - Examples: fun facts → `src/data/funFacts.json`, color palettes → `src/data/colors.json`, shape definitions → `src/data/shapes.json`
 - Keep it simple: JSON files for data, components for UI, utilities for helpers.
 - Only use databases/backend storage if the project explicitly requires a backend (user data, authentication, real-time updates, etc.).
+
+**CRITICAL AUTHENTICATION RULES:**
+- **MANDATORY PAIRING**: If you create ANY login/authentication functionality, you MUST also create signup/registration functionality.
+- Login and Signup are ALWAYS created together - never create one without the other.
+- **FRONTEND AUTHENTICATION**: If you create ANY frontend login UI/story, you MUST create BOTH:
+  1. "Create Login Page UI" OR "Create Login Form Component" story
+  2. "Create Signup Page UI" OR "Create Registration Form Component" story
+  3. "Integrate Login API" story
+  4. "Integrate Signup API" OR "Integrate Registration API" story
+- **BACKEND AUTHENTICATION**: If you create ANY backend login endpoint/story, you MUST create BOTH:
+  1. "Implement User Login Endpoint" story
+  2. "Implement User Registration Endpoint" OR "Implement User Signup Endpoint" story
+- **NEVER create only login without signup** - this is a critical error.
+- If creating a "Login" story, you MUST also create a "Signup" or "Registration" story in the SAME epic.
+- If creating a "Login Form" component, you MUST also create a "Signup Form" or "Registration Form" component.
+- If creating a "Login Endpoint" API, you MUST also create a "Signup Endpoint" or "Registration Endpoint" API.
+- Both login and signup should be part of the same epic or related epics.
+- **Example Frontend Epic**: "User Authentication (Frontend)" MUST include: Login Page UI, Signup Page UI, Integrate Login API, Integrate Signup API (4 stories minimum).
+- **Example Backend Epic**: "User Authentication (Backend)" MUST include: User Schema, Login Endpoint, Registration Endpoint, Secure Password Storage (4 stories minimum).
 
 **CRITICAL INTEGRATION RULES:**
 - When creating components, ALWAYS specify WHERE they should be used (root page, specific route, nested component, etc.).
@@ -190,6 +221,16 @@ For FRONTEND integration tasks:
 For FRONTEND API integration (for frontend epics):
 "Context: The backend API endpoint for user registration is ready. We need to create a frontend form that calls this API.\\n\\nGoal: Create a registration form component that sends user data to the backend API endpoint.\\n\\nDevelopment Plan:\\n1. Create src/components/RegistrationForm.tsx component\\n2. Add form fields (email, password, username) with React state management\\n3. Add form validation (email format, password strength)\\n4. Implement API call to POST /api/register using fetch or axios\\n5. Handle success (redirect/show success message) and error (display error message)\\n6. Add loading state during API call\\n\\nFiles Needed:\\n- src/components/RegistrationForm.tsx (create)\\n- src/utils/api.ts (create or modify - add API helper functions)\\n\\nImplementation: Create a React functional component with useState for form fields. Use fetch() to POST to http://localhost:5000/api/register with JSON body. Handle response and update UI accordingly. This component will be used in the registration page."
 
+**CRITICAL EXAMPLE: Correct Authentication Epic Stories (Frontend)**
+If creating a "User Authentication (Frontend)" epic, you MUST create ALL of these stories:
+1. "Create Login Page UI" - Story for building the login page/component
+2. "Create Signup Page UI" OR "Create Registration Page UI" - Story for building the signup page/component
+3. "Integrate Login API" - Story for connecting login UI to backend API
+4. "Integrate Signup API" OR "Integrate Registration API" - Story for connecting signup UI to backend API
+
+**WRONG**: Creating only "Create Login Page UI" and "Integrate Login API" (missing signup)
+**CORRECT**: Creating all 4 stories above (login UI, signup UI, login API integration, signup API integration)
+
 DO NOT include dependencies yet - that will be determined in the next step.
 """
         response_text = self.get_response(prompt)
@@ -210,6 +251,8 @@ DO NOT include dependencies yet - that will be determined in the next step.
             
             # Try parsing first
             stories = json.loads(cleaned_text)
+            # Validate and add missing signup stories
+            stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
             return stories
         except json.JSONDecodeError as e:
             # Log the actual parsing error for debugging
@@ -278,6 +321,8 @@ DO NOT include dependencies yet - that will be determined in the next step.
                 fixed_text = fix_string_newlines(cleaned_text)
                 stories = json.loads(fixed_text)
                 print(f"Successfully parsed after fixing newlines.")
+                # Validate and add missing signup stories
+                stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
                 return stories
             except json.JSONDecodeError as e2:
                 # Try one more time with the improved fix function
@@ -288,6 +333,8 @@ DO NOT include dependencies yet - that will be determined in the next step.
                     # Try parsing
                     stories = json.loads(fixed_text)
                     print(f"Successfully parsed after second fix attempt.")
+                    # Validate and add missing signup stories
+                    stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
                     return stories
                 except (json.JSONDecodeError, Exception) as e3:
                     print(f"Still failed after aggressive fix attempt. Error: {e3}")
@@ -303,10 +350,103 @@ DO NOT include dependencies yet - that will be determined in the next step.
                             array_fixed = fix_string_newlines(array_text)
                             stories = json.loads(array_fixed)
                             print(f"Successfully parsed after extracting array and fixing.")
+                            # Validate and add missing signup stories
+                            stories = self._validate_and_add_signup_stories(stories, epic_id, epic_title)
                             return stories
                     except:
                         pass
                 return []
+
+    def _validate_and_add_signup_stories(self, stories: List[Dict], epic_id: str, epic_title: str) -> List[Dict]:
+        """Validate that login stories have corresponding signup stories, and add missing ones."""
+        if not stories:
+            return stories
+        
+        # Check if this epic is about authentication/login
+        epic_title_lower = epic_title.lower()
+        is_auth_epic = any(keyword in epic_title_lower for keyword in ['login', 'authentication', 'auth', 'user management'])
+        
+        if not is_auth_epic:
+            return stories
+        
+        # Find login-related stories
+        login_stories = []
+        signup_stories = []
+        
+        for story in stories:
+            title_lower = story.get('title', '').lower()
+            if any(keyword in title_lower for keyword in ['login', 'log in']):
+                login_stories.append(story)
+            elif any(keyword in title_lower for keyword in ['signup', 'sign up', 'registration', 'register']):
+                signup_stories.append(story)
+        
+        # If we have login stories but no signup stories, add them
+        if login_stories and not signup_stories:
+            print(f"⚠️  WARNING: Found login stories without signup stories in epic '{epic_title}'. Adding missing signup stories...")
+            
+            # Determine if this is a backend or frontend epic
+            is_backend = any(keyword in epic_title_lower for keyword in ['backend', 'api', 'server'])
+            is_frontend = any(keyword in epic_title_lower for keyword in ['frontend', 'ui', 'ux', 'page', 'component'])
+            
+            # Get the highest story ID to continue numbering
+            max_id = 0
+            for story in stories:
+                try:
+                    story_id = int(story.get('id', '0'))
+                    max_id = max(max_id, story_id)
+                except:
+                    pass
+            
+            new_stories = []
+            
+            if is_backend:
+                # Add backend signup endpoint story
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Implement User Registration Endpoint",
+                    "description": "Context: Users need to be able to create new accounts. We have a login endpoint but users cannot register.\\n\\nGoal: Create an API endpoint for user registration that accepts email and password, validates input, hashes the password, and stores the user in the database.\\n\\nDevelopment Plan:\\n1. Create POST /api/register route in server/routes/auth.ts\\n2. Add validation middleware for email/password format\\n3. Check if user already exists (email uniqueness)\\n4. Hash password using bcrypt before storing\\n5. Create user record in database\\n6. Return success response or error if registration fails\\n\\nFiles Needed:\\n- server/routes/auth.ts (create or modify)\\n- server/middleware/validation.ts (create or modify)\\n- server/utils/bcrypt.ts (create or modify)\\n\\nImplementation: Create POST endpoint that accepts {email, password}, validates format, checks for existing user, hashes password with bcrypt, saves to MongoDB, returns 201 on success or 400/409 on failure.",
+                    "assigned_to": "Backend Dev",
+                    "parent_id": epic_id
+                })
+            elif is_frontend:
+                # Add frontend signup page and API integration stories
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Create Signup Page UI",
+                    "description": "Context: Users need to be able to create new accounts. We have a login page but no signup page.\\n\\nGoal: Create a signup/registration page component that allows users to register with email and password.\\n\\nDevelopment Plan:\\n1. Create src/pages/Signup.tsx or src/components/SignupForm.tsx\\n2. Add form fields: email, password, confirm password\\n3. Add form validation (email format, password strength, password match)\\n4. Add form state management with React useState\\n5. Style the form to match the login page design\\n6. Add error handling and display error messages\\n\\nFiles Needed:\\n- src/pages/Signup.tsx (create) OR src/components/SignupForm.tsx (create)\\n- src/App.tsx (modify - add route for signup page)\\n\\nImplementation: Create a React functional component with form fields for email, password, and confirm password. Use useState for form state. Add validation for email format and password match. Style consistently with the login page. This will be accessible at /signup route.",
+                    "assigned_to": "Frontend Dev",
+                    "parent_id": epic_id
+                })
+                
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Integrate Signup API",
+                    "description": "Context: We have created a signup page UI and a backend registration endpoint. Now we need to connect them.\\n\\nGoal: Integrate the signup form with the backend registration API endpoint.\\n\\nDevelopment Plan:\\n1. Add signup API function to src/utils/api.ts\\n2. Import and use the signup API function in the signup page/component\\n3. Call the API on form submission\\n4. Handle success (redirect to login or auto-login)\\n5. Handle errors (display error messages)\\n6. Add loading state during API call\\n\\nFiles Needed:\\n- src/utils/api.ts (modify - add signup/register function)\\n- src/pages/Signup.tsx or src/components/SignupForm.tsx (modify - add API integration)\\n\\nImplementation: In the signup component, add an onSubmit handler that calls the signup API function with form data. Use fetch() to POST to /api/register. On success, either redirect to login page or automatically log the user in. On error, display the error message to the user.",
+                    "assigned_to": "Frontend Dev",
+                    "parent_id": epic_id
+                })
+            else:
+                # Generic case - add both backend and frontend signup stories
+                max_id += 1
+                new_stories.append({
+                    "id": str(max_id),
+                    "type": "story",
+                    "title": "Implement User Registration",
+                    "description": "Context: Users need to be able to create new accounts. We have login functionality but no registration.\\n\\nGoal: Create user registration functionality (backend endpoint and/or frontend UI) to allow new users to sign up.\\n\\nDevelopment Plan:\\n1. Create registration endpoint (if backend) or registration UI (if frontend)\\n2. Add validation for email and password\\n3. Hash passwords before storing (if backend)\\n4. Handle success and error cases\\n\\nFiles Needed:\\n- server/routes/auth.ts (create or modify) OR src/pages/Signup.tsx (create)\\n\\nImplementation: Implement user registration following the same patterns as login, ensuring password hashing and validation.",
+                    "assigned_to": "Backend Dev" if is_backend else "Frontend Dev",
+                    "parent_id": epic_id
+                })
+            
+            stories.extend(new_stories)
+            print(f"✅ Added {len(new_stories)} missing signup/registration story(ies)")
+        
+        return stories
 
     def generate_dependencies(self, all_epics: List[Dict], all_stories: List[Dict], prd_content: str) -> Dict[str, Dict[str, List[str]]]:
         """Step 3: Generate dependencies between Epics and Stories"""

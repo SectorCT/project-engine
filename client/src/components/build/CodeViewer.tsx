@@ -181,8 +181,8 @@ export const CodeViewer = ({ filePath, content: initialContent, jobId, jobStatus
   const codeContent = content || mockCodeContent[fileName] || `// No content available for ${fileName}`;
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-hidden">
-      <ScrollArea className="flex-1">
+    <div className="h-full w-full flex flex-col bg-background">
+      <ScrollArea className="h-full w-full">
         <div className="p-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -194,8 +194,8 @@ export const CodeViewer = ({ filePath, content: initialContent, jobId, jobStatus
               Error: {error}
             </div>
           ) : (
-            <pre className="text-sm font-mono leading-relaxed">
-              <code className="text-foreground whitespace-pre">{codeContent}</code>
+            <pre className="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
+              <code className="text-foreground block">{codeContent}</code>
             </pre>
           )}
         </div>

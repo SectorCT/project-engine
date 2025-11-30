@@ -129,6 +129,8 @@ class ProjectInitializer:
         
         if has_backend:
             _init_backend(docker_env, structure)
+            # Setup MongoDB after backend initialization
+            _setup_mongodb(docker_env, structure)
         
         print("Project structure initialized successfully.")
     
@@ -584,6 +586,7 @@ export function setupCors(app: Express) {
     # server/index.ts
     server_index = '''import express from 'express';
 import { setupCors } from './cors';
+import { connectDatabase } from './mongodb.config';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -597,10 +600,203 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Start server with MongoDB connection and error handling
+async function startServer() {
+  try {
+    // Connect to MongoDB (will start MongoDB if not running)
+    await connectDatabase();
+    
+    // Start server
+    const server = app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Error: Port ${PORT} is already in use.`);
+        console.error(`   The server is likely already running.`);
+        console.error(`   To stop it, run: pkill -f "tsx server/index.ts" or find the process with: lsof -i :${PORT}`);
+        process.exit(1);
+      } else {
+        console.error('Server error:', err);
+        process.exit(1);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 '''
     _write_file_to_docker(docker_env, "/app/server/index.ts", server_index)
+
+
+def _setup_mongodb(docker_env: DockerEnv, structure: Dict):
+    """Setup MongoDB and create connection URI configuration file."""
+    print("Setting up MongoDB...")
+    
+    # Check if MongoDB is installed
+    print("Checking if MongoDB is installed...")
+    exit_code, output = docker_env.exec_run(
+        "which mongod",
+        workdir="/app"
+    )
+    
+    if exit_code != 0:
+        print("MongoDB not found. Installing MongoDB...")
+        # Install MongoDB repository key and source
+        install_cmd = """bash -c '
+            curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor && \
+            echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list && \
+            apt-get update && \
+            DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org
+        '"""
+        exit_code, output = docker_env.exec_run(install_cmd, workdir="/app")
+        if exit_code != 0:
+            print(f"⚠️  MongoDB installation failed (exit code: {exit_code})")
+            print(f"Output: {output[:500]}")
+            print("Continuing anyway - MongoDB may need to be installed manually.")
+        else:
+            print("✅ MongoDB installed successfully")
+    else:
+        print("✅ MongoDB is already installed")
+    
+    # Ensure MongoDB directories exist and have correct permissions
+    print("Setting up MongoDB directories...")
+    docker_env.exec_run("mkdir -p /data/db /var/log/mongodb", workdir="/app")
+    docker_env.exec_run("chown -R mongodb:mongodb /data/db /var/log/mongodb || true", workdir="/app")
+    
+    # Check if MongoDB is already running
+    print("Checking if MongoDB is already running...")
+    exit_code, output = docker_env.exec_run(
+        "mongosh --eval 'db.adminCommand(\"ping\")' --quiet 2>&1",
+        workdir="/app"
+    )
+    
+    if exit_code == 0:
+        print("✅ MongoDB is already running")
+    else:
+        # Start MongoDB service in background
+        print("Starting MongoDB service...")
+        # Use --fork to run MongoDB in background since container doesn't use systemd
+        exit_code, output = docker_env.exec_run(
+            "bash -c 'mongod --bind_ip 0.0.0.0 --logpath /var/log/mongodb/mongod.log --fork'",
+            workdir="/app"
+        )
+        
+        if exit_code != 0:
+            print(f"Warning: MongoDB start command returned exit code {exit_code}")
+            print(f"Output: {output[:500]}")
+        
+        # Wait a moment for MongoDB to start
+        import time
+        time.sleep(5)
+        
+        # Check if MongoDB is accessible without authentication
+        print("Checking MongoDB accessibility...")
+        exit_code, output = docker_env.exec_run(
+            "mongosh --eval 'db.adminCommand(\"ping\")' --quiet",
+            workdir="/app"
+        )
+        
+        if exit_code == 0:
+            print("✅ MongoDB started and is accessible")
+        else:
+            print(f"⚠️  MongoDB ping check returned exit code {exit_code}")
+            print(f"Output: {output[:500]}")
+            print("MongoDB may still be starting up. URI will be created anyway.")
+    
+    # Default to no authentication (as per user request)
+    mongodb_uri = "mongodb://localhost:27017/project_db"
+    
+    # Create MongoDB configuration file with connection helper
+    mongodb_config = f'''import mongoose from 'mongoose';
+import {{ exec }} from 'child_process';
+import {{ promisify }} from 'util';
+
+const execAsync = promisify(exec);
+
+// MongoDB Connection Configuration
+// MongoDB runs on port 27017 (default port)
+export const MONGODB_URI = "{mongodb_uri}";
+
+/**
+ * Ensures MongoDB is running before connecting.
+ * Starts MongoDB if it's not already running.
+ */
+async function ensureMongoDBRunning(): Promise<void> {{
+  // Check if MongoDB is already running
+  try {{
+    await execAsync('mongosh --eval "db.adminCommand(\\\\"ping\\\\")" --quiet 2>&1');
+    console.log('✅ MongoDB is already running');
+    return;
+  }} catch (error) {{
+    // MongoDB is not running, start it
+    console.log('🔄 Starting MongoDB...');
+    return new Promise((resolve, reject) => {{
+      // Start MongoDB in background using --fork
+      exec('mongod --bind_ip 0.0.0.0 --logpath /var/log/mongodb/mongod.log --fork', async (error) => {{
+        if (error && !error.message.includes('already in use') && !error.message.includes('Address already in use')) {{
+          console.error('Error starting MongoDB:', error);
+          // Try to check if it's already running
+          try {{
+            await execAsync('mongosh --eval "db.adminCommand(\\\\"ping\\\\")" --quiet 2>&1');
+            console.log('✅ MongoDB is already running');
+            resolve();
+            return;
+          }} catch (e) {{
+            reject(error);
+            return;
+          }}
+        }}
+        
+        // Wait for MongoDB to start (max 10 seconds)
+        let attempts = 0;
+        const maxAttempts = 20;
+        while (attempts < maxAttempts) {{
+          try {{
+            await execAsync('mongosh --eval "db.adminCommand(\\\\"ping\\\\")" --quiet 2>&1');
+            console.log('✅ MongoDB started successfully');
+            resolve();
+            return;
+          }} catch (e) {{
+            attempts++;
+            await new Promise(r => setTimeout(r, 500));
+          }}
+        }}
+        reject(new Error('MongoDB failed to start after 10 seconds'));
+      }});
+    }});
+  }}
+}}
+
+/**
+ * Connect to MongoDB with automatic startup if needed.
+ */
+export async function connectDatabase(): Promise<void> {{
+  try {{
+    await ensureMongoDBRunning();
+    
+    await mongoose.connect(MONGODB_URI);
+    console.log('✅ Connected to MongoDB');
+    
+    mongoose.connection.on('error', (err) => {{
+      console.error('MongoDB connection error:', err);
+    }});
+    
+    mongoose.connection.on('disconnected', () => {{
+      console.warn('MongoDB disconnected');
+    }});
+  }} catch (error) {{
+    console.error('❌ Failed to connect to MongoDB:', error);
+    throw error;
+  }}
+}}
+'''
+    
+    _write_file_to_docker(docker_env, "/app/server/mongodb.config.ts", mongodb_config)
+    print(f"✅ MongoDB URI configuration created at server/mongodb.config.ts")
+    print(f"   MongoDB URI: {mongodb_uri}")
 

@@ -35,7 +35,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'authentication.apps.AuthenticationConfig',
     'jobs.apps.JobsConfig',
-    'router_server.apps.RouterServerConfig',
 ]
 
 MIDDLEWARE = [
@@ -199,7 +198,7 @@ AGENT_ORCHESTRATOR_PATH = os.getenv(
 )
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5.1')
 CURSOR_API_KEY = os.getenv('CURSOR_API_KEY', '')
 DOCKER_SOCKET_PATH = os.getenv('DOCKER_SOCKET_PATH', '')
 

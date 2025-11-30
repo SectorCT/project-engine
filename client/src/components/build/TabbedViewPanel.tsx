@@ -149,7 +149,7 @@ export const TabbedViewPanel = ({
             </div>
           </div>
         ) : (
-          <div className="h-full min-h-0">
+          <div className="h-full w-full min-h-0 overflow-hidden">
             <CodeViewer
               filePath={activeTab.filePath || ""}
               content={activeTab.content}

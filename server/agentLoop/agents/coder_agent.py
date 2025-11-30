@@ -67,6 +67,45 @@ You are pragmatic, clean, and efficient.
             for file in project_structure.get('known_files', []):
                 prompt_parts.append(f"  - {file}")
             
+            # Add MongoDB database information if backend exists
+            if project_structure.get('has_backend', False):
+                prompt_parts.append("\n" + "=" * 80)
+                prompt_parts.append("MONGODB DATABASE ACCESS")
+                prompt_parts.append("=" * 80)
+                prompt_parts.append(
+                    "MongoDB is installed and running in the Docker container.\n"
+                    "- MongoDB URI: mongodb://localhost:27017/project_db\n"
+                    "- MongoDB runs on port 27017 (default port)\n"
+                    "- No authentication required (development mode)\n"
+                    "- MongoDB configuration file: server/mongodb.config.ts\n"
+                    "\n"
+                    "CRITICAL: You MUST use Mongoose for all database interactions.\n"
+                    "Do NOT use the native MongoDB driver.\n"
+                    "\n"
+                    "How to use Mongoose:\n"
+                    "1. Mongoose is already installed (included in package.json)\n"
+                    "\n"
+                    "2. Import and connect to MongoDB:\n"
+                    "   import mongoose from 'mongoose';\n"
+                    "   import { MONGODB_URI } from './mongodb.config';\n"
+                    "   await mongoose.connect(MONGODB_URI);\n"
+                    "\n"
+                    "3. Define Mongoose schemas and models:\n"
+                    "   - Create models in server/models/ directory\n"
+                    "   - Use Mongoose schema validation\n"
+                    "   - Use Mongoose methods for CRUD operations\n"
+                    "   - Example:\n"
+                    "     import mongoose from 'mongoose';\n"
+                    "     const userSchema = new mongoose.Schema({{\n"
+                    "       name: {{ type: String, required: true }},\n"
+                    "       email: {{ type: String, required: true, unique: true }}\n"
+                    "     }});\n"
+                    "     export const User = mongoose.model('User', userSchema);\n"
+                    "\n"
+                    "4. MongoDB is already running - no need to start it manually.\n"
+                    "   The database is accessible immediately when the container is running."
+                )
+            
             # Add current files in container
             if project_structure.get('current_files'):
                 prompt_parts.append("\nCurrent Files in Container:")

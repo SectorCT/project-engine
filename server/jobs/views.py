@@ -18,7 +18,7 @@ from .artifact_service import (
     read_file,
     write_file,
 )
-from .docker_utils import ContainerNotFound, start_container, stop_container
+from .docker_utils import ContainerNotFound, get_project_host_port, start_container, stop_container
 from .models import App, Job, JobMessage, Ticket
 from .serializers import (
     AppSerializer,
@@ -108,6 +108,16 @@ class JobViewSet(
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=False, methods=('get',), url_path='port/(?P<project_id>[^/.]+)')
+    def get_port(self, request, project_id=None):
+        """Get the port for a project ID. Used by nginx for routing."""
+        try:
+            port = get_project_host_port(project_id)
+            return Response({'port': port, 'url': f'http://127.0.0.1:{port}'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error('Error getting port for project %s: %s', project_id, e)
+            return Response({'detail': 'Error resolving port'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     @action(detail=False, methods=('delete',), url_path='purge')
     def purge(self, request):
         if not getattr(settings, 'ALLOW_JOB_PURGE', settings.DEBUG):
