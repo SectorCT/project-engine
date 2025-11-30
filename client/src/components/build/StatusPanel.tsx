@@ -12,41 +12,27 @@ interface StatusPanelProps {
   steps?: JobStep[];
 }
 
-function getAgentStatus(
-  job: Job | undefined,
-  agentName: string
-): "idle" | "working" | "waiting" | "complete" {
+function getAgentStatus(job: Job | undefined, agentName: string): "idle" | "working" | "waiting" | "complete" {
   if (!job) return "idle";
-
-  const completeStatuses = new Set(["done", "build_done"]);
-  const waitingStatuses = new Set([
-    "collecting",
-    "queued",
-    "planning",
-    "prd_ready",
-    "ticketing",
-    "tickets_ready",
-    "building",
-    "running",
-  ]);
-
-  if (completeStatuses.has(job.status)) return "complete";
+  
+  if (job.status === "done") return "complete";
   if (job.status === "failed") return "idle";
-
-  const recentSteps = job.steps?.filter((step) => step.agent_name === agentName) || [];
+  
+  // Check if this agent has recent steps
+  const recentSteps = job.steps?.filter(step => step.agent_name === agentName) || [];
   if (recentSteps.length > 0) {
     const lastStep = recentSteps[recentSteps.length - 1];
     const stepTime = new Date(lastStep.created_at).getTime();
     const now = Date.now();
     const fiveMinutesAgo = now - 5 * 60 * 1000;
-
+    
     if (stepTime > fiveMinutesAgo) {
       return "working";
     }
     return "complete";
   }
-
-  if (waitingStatuses.has(job.status)) return "waiting";
+  
+  if (job.status === "running") return "waiting";
   return "idle";
 }
 
@@ -101,31 +87,17 @@ export const StatusPanel = ({ job, steps = [] }: StatusPanelProps) => {
 
   // Extract unique agents from steps
   const agentNames = Array.from(new Set(steps.map(step => step.agent_name)));
-  const agents = agentNames.map((name, idx) => {
-    const role =
-      name.toLowerCase().includes("ceo")
-        ? ("manager" as const)
-        : name.toLowerCase().includes("cto")
-        ? ("architect" as const)
-        : name.toLowerCase().includes("client")
-        ? ("analyst" as const)
-        : name.toLowerCase().includes("secretary")
-        ? ("qa" as const)
-        : ("developer" as const);
-
-    const latestStep = steps.find((s) => s.agent_name === name);
-    const currentTask = latestStep
-      ? `${latestStep.message.substring(0, 50)}${latestStep.message.length > 50 ? "..." : ""}`
-      : undefined;
-
-    return {
-      id: `agent-${idx}`,
-      name,
-      role,
-      status: getAgentStatus(job, name),
-      currentTask,
-    };
-  });
+  const agents = agentNames.map((name, idx) => ({
+    id: `agent-${idx}`,
+    name,
+    role: name.toLowerCase().includes("ceo") ? "manager" as const :
+          name.toLowerCase().includes("cto") ? "architect" as const :
+          name.toLowerCase().includes("client") ? "analyst" as const :
+          name.toLowerCase().includes("secretary") ? "qa" as const :
+          "developer" as const,
+    status: getAgentStatus(job, name),
+    currentTask: steps.find(s => s.agent_name === name)?.message.substring(0, 50) + "...",
+  }));
 
   // Create activity log from steps
   const activity = steps.slice(-10).reverse().map((step, idx) => ({

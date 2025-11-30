@@ -1,44 +1,33 @@
 import { Job } from './api';
 
 // Map server statuses to client statuses
-export type ClientJobStatus = 'planning' | 'ticketing' | 'building' | 'complete' | 'failed';
+export type ClientJobStatus = 'planning' | 'building' | 'testing' | 'complete' | 'failed';
 
 export function mapServerStatusToClient(serverStatus: Job['status']): ClientJobStatus {
   const statusMap: Record<Job['status'], ClientJobStatus> = {
     collecting: 'planning',
     queued: 'planning',
-    planning: 'planning',
-    prd_ready: 'planning',
-    ticketing: 'ticketing',
-    tickets_ready: 'ticketing',
-    building: 'building',
     running: 'building',
-    build_done: 'complete',
     done: 'complete',
     failed: 'failed',
-  } as any;
+  };
   return statusMap[serverStatus] || 'planning';
 }
 
 export function calculateProgress(job: Job): number {
+  // Calculate progress based on status
   switch (job.status) {
     case 'collecting':
-      return 5;
+      return 10;
     case 'queued':
-    case 'planning':
-      return 15;
-    case 'prd_ready':
-      return 30;
-    case 'ticketing':
-      return 45;
-    case 'tickets_ready':
-      return 55;
-    case 'building':
+      return 20;
     case 'running':
-      return job.steps && job.steps.length > 0
-        ? Math.min(55 + job.steps.length * 5, 90)
-        : 70;
-    case 'build_done':
+      // If we have steps, calculate based on steps
+      if (job.steps && job.steps.length > 0) {
+        // Rough estimate: 20% base + up to 60% based on steps (assuming ~10 steps total)
+        return Math.min(20 + (job.steps.length * 6), 80);
+      }
+      return 50;
     case 'done':
       return 100;
     case 'failed':
