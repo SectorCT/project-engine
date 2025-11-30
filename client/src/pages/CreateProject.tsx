@@ -4,36 +4,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Navbar } from "@/components/Navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ArrowRight, Lightbulb } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 interface ProjectFormData {
-  name: string;
   description: string;
-  platform: "web" | "mobile" | "desktop";
-  techStack: {
-    frontend: string[];
-    backend: string[];
-    database: string[];
-    other: string[];
-  };
-  complexity: "simple" | "medium" | "complex";
-  features: string[];
+  agreedToTerms: boolean;
 }
 
 const examplePrompts = [
@@ -44,26 +25,15 @@ const examplePrompts = [
 
 const steps = [
   { id: 1, name: "Project Idea", description: "Describe what you want to build" },
-  { id: 2, name: "Configuration", description: "Choose your tech preferences" },
-  { id: 3, name: "Agent Assignment", description: "Review your AI team" },
-  { id: 4, name: "Confirm & Launch", description: "Start building" },
+  { id: 2, name: "Confirm & Launch", description: "Review and start building" },
 ];
 
 export default function CreateProject() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<ProjectFormData>({
-    name: "",
     description: "",
-    platform: "web",
-    techStack: {
-      frontend: [],
-      backend: [],
-      database: [],
-      other: [],
-    },
-    complexity: "medium",
-    features: [],
+    agreedToTerms: false,
   });
 
   const updateFormData = (updates: Partial<ProjectFormData>) => {
@@ -71,7 +41,7 @@ export default function CreateProject() {
   };
 
   const handleNext = () => {
-    if (currentStep < 4) {
+    if (currentStep < 2) {
       setCurrentStep(currentStep + 1);
     }
   };
@@ -90,32 +60,14 @@ export default function CreateProject() {
       return;
     }
 
+    if (!formData.agreedToTerms) {
+      toast.error("You must agree to the terms of service to proceed");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Build a comprehensive prompt from the form data
-      let prompt = formData.description;
-      
-      // Add configuration details to the prompt
-      if (formData.platform) {
-        prompt += `\n\nPlatform: ${formData.platform}`;
-      }
-      if (formData.complexity) {
-        prompt += `\n\nComplexity: ${formData.complexity}`;
-      }
-      if (formData.techStack.frontend.length > 0) {
-        prompt += `\n\nPreferred Frontend: ${formData.techStack.frontend.join(', ')}`;
-      }
-      if (formData.techStack.backend.length > 0) {
-        prompt += `\n\nPreferred Backend: ${formData.techStack.backend.join(', ')}`;
-      }
-      if (formData.techStack.database.length > 0) {
-        prompt += `\n\nPreferred Database: ${formData.techStack.database.join(', ')}`;
-      }
-      if (formData.features.length > 0) {
-        prompt += `\n\nRequired Features: ${formData.features.join(', ')}`;
-      }
-
-      const job = await api.createJob(prompt);
+      const job = await api.createJob(formData.description.trim());
       toast.success("Project created successfully!");
       navigate(`/project/${job.id}`);
     } catch (error: any) {
@@ -125,30 +77,6 @@ export default function CreateProject() {
     }
   };
 
-  const toggleTechStack = (
-    category: keyof ProjectFormData["techStack"],
-    value: string
-  ) => {
-    setFormData((prev) => {
-      const current = prev.techStack[category];
-      const updated = current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value];
-      return {
-        ...prev,
-        techStack: { ...prev.techStack, [category]: updated },
-      };
-    });
-  };
-
-  const toggleFeature = (feature: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      features: prev.features.includes(feature)
-        ? prev.features.filter((f) => f !== feature)
-        : [...prev.features, feature],
-    }));
-  };
 
   const canProceed = () => {
     if (currentStep === 1) {
@@ -173,7 +101,7 @@ export default function CreateProject() {
               <div>
                 <h1 className="text-xl font-semibold">Create New Project</h1>
                 <p className="text-xs text-muted-foreground">
-                  Step {currentStep} of 4
+                  Step {currentStep} of 2
                 </p>
               </div>
             </div>
@@ -292,241 +220,8 @@ export default function CreateProject() {
                 </motion.div>
               )}
 
-              {/* Step 2: Configuration */}
+              {/* Step 2: Confirm & Launch */}
               {currentStep === 2 && (
-                <motion.div
-                  key="step2"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="space-y-4"
-                >
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">Platform</Label>
-                    <RadioGroup
-                      value={formData.platform}
-                      onValueChange={(value: "web" | "mobile" | "desktop") =>
-                        updateFormData({ platform: value })
-                      }
-                      className="space-y-2"
-                    >
-                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
-                        <RadioGroupItem value="web" id="web" />
-                        <Label htmlFor="web" className="cursor-pointer font-normal">
-                          Web App
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
-                        <RadioGroupItem value="mobile" id="mobile" />
-                        <Label htmlFor="mobile" className="cursor-pointer font-normal">
-                          Mobile App
-                        </Label>
-                      </div>
-                      <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/30 hover:bg-muted/30 transition-colors cursor-pointer">
-                        <RadioGroupItem value="desktop" id="desktop" />
-                        <Label htmlFor="desktop" className="cursor-pointer font-normal">
-                          Desktop App
-                        </Label>
-                      </div>
-                    </RadioGroup>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">Tech Stack</Label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-sm">Frontend</Label>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {["React", "Vue", "Next.js", "Angular"].map(
-                            (tech) => (
-                              <Badge
-                                key={tech}
-                                variant={
-                                  formData.techStack.frontend.includes(tech)
-                                    ? "default"
-                                    : "outline"
-                                }
-                                className="cursor-pointer transition-all font-normal border-border/50"
-                                onClick={() =>
-                                  toggleTechStack("frontend", tech)
-                                }
-                              >
-                                {tech}
-                              </Badge>
-                            )
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-sm">Backend</Label>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {["Node.js", "Python", "Ruby", "Go"].map((tech) => (
-                            <Badge
-                              key={tech}
-                              variant={
-                                formData.techStack.backend.includes(tech)
-                                  ? "default"
-                                  : "outline"
-                              }
-                              className="cursor-pointer"
-                              onClick={() => toggleTechStack("backend", tech)}
-                            >
-                              {tech}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-sm">Database</Label>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {["PostgreSQL", "MongoDB", "MySQL"].map((tech) => (
-                            <Badge
-                              key={tech}
-                              variant={
-                                formData.techStack.database.includes(tech)
-                                  ? "default"
-                                  : "outline"
-                              }
-                              className="cursor-pointer"
-                              onClick={() => toggleTechStack("database", tech)}
-                            >
-                              {tech}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-sm">Other</Label>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {["TypeScript", "Tailwind CSS"].map((tech) => (
-                            <Badge
-                              key={tech}
-                              variant={
-                                formData.techStack.other.includes(tech)
-                                  ? "default"
-                                  : "outline"
-                              }
-                              className="cursor-pointer"
-                              onClick={() => toggleTechStack("other", tech)}
-                            >
-                              {tech}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">Complexity</Label>
-                    <Select
-                      value={formData.complexity}
-                      onValueChange={(value: "simple" | "medium" | "complex") =>
-                        updateFormData({ complexity: value })
-                      }
-                    >
-                      <SelectTrigger className="bg-input/50 border-border/50">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="simple">
-                          Simple - Basic CRUD, 1-2 weeks
-                        </SelectItem>
-                        <SelectItem value="medium">
-                          Medium - Multiple features, 2-4 weeks
-                        </SelectItem>
-                        <SelectItem value="complex">
-                          Complex - Advanced features, 4+ weeks
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-semibold">Features</Label>
-                    <div className="space-y-2">
-                      {[
-                        "Authentication",
-                        "Payment Processing",
-                        "Real-time Updates",
-                        "File Upload",
-                        "Email Notifications",
-                        "Admin Dashboard",
-                      ].map((feature) => (
-                        <div key={feature} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
-                          <Checkbox
-                            id={feature}
-                            checked={formData.features.includes(feature)}
-                            onCheckedChange={() => toggleFeature(feature)}
-                          />
-                          <Label
-                            htmlFor={feature}
-                            className="cursor-pointer font-normal flex-1"
-                          >
-                            {feature}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 3: Preview */}
-              {currentStep === 3 && (
-                <motion.div
-                  key="step3"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="space-y-4"
-                >
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-semibold mb-3">Project Summary</h3>
-                      <div className="bg-muted/30 border border-border/30 p-4 rounded-lg space-y-2 text-sm">
-                        <p>
-                          <span className="font-medium">Name:</span>{" "}
-                          {formData.name}
-                        </p>
-                        <p>
-                          <span className="font-medium">Platform:</span>{" "}
-                          {formData.platform}
-                        </p>
-                        <p>
-                          <span className="font-medium">Complexity:</span>{" "}
-                          {formData.complexity}
-                        </p>
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold mb-3">Agents</h3>
-                      <div className="space-y-2">
-                        {[
-                          "Business Analyst",
-                          "Project Manager",
-                          "Architect",
-                          "Developers (1-3)",
-                          "QA Tester",
-                        ].map((role) => (
-                          <div
-                            key={role}
-                            className="flex items-center gap-3 p-3 bg-muted/30 border border-border/30 rounded-lg"
-                          >
-                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-semibold text-primary">
-                              {role.charAt(0)}
-                            </div>
-                            <span className="text-sm">{role}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Step 4: Launch */}
-              {currentStep === 4 && (
                 <motion.div
                   key="step4"
                   initial={{ opacity: 0, x: 20 }}
@@ -550,23 +245,35 @@ export default function CreateProject() {
                       working immediately.
                     </p>
                   </div>
-                  <div className="bg-muted/30 border border-border/30 p-4 rounded-lg space-y-2 text-sm">
-                    <p>
-                      <span className="font-semibold">Estimated Time:</span>{" "}
-                      {formData.complexity === "simple"
-                        ? "1-2 weeks"
-                        : formData.complexity === "medium"
-                        ? "2-4 weeks"
-                        : "4+ weeks"}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Estimated Cost:</span> $50-200
+                  
+                  <div className="bg-muted/30 border border-border/30 p-4 rounded-lg space-y-3">
+                    <h4 className="text-sm font-semibold">Project Description</h4>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                      {formData.description || "No description provided"}
                     </p>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox id="terms" />
-                    <Label htmlFor="terms" className="cursor-pointer text-sm">
-                      I agree to the terms of service
+
+                  <div className="flex items-start space-x-3 p-4 rounded-lg border border-border/50 bg-muted/20">
+                    <Checkbox 
+                      id="terms" 
+                      checked={formData.agreedToTerms}
+                      onCheckedChange={(checked) => 
+                        updateFormData({ agreedToTerms: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <Label htmlFor="terms" className="cursor-pointer text-sm leading-relaxed flex-1">
+                      I agree to the{" "}
+                      <a 
+                        href="/terms" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        terms of service
+                      </a>
+                      {" "}and understand that AI agents will work on my project.
                     </Label>
                   </div>
                 </motion.div>
@@ -584,7 +291,7 @@ export default function CreateProject() {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Cancel
               </Button>
-              {currentStep < 4 ? (
+              {currentStep < 2 ? (
                 <Button 
                   onClick={handleNext} 
                   disabled={!canProceed()}
@@ -595,11 +302,11 @@ export default function CreateProject() {
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
-                  <Button 
+                <Button 
                   onClick={handleLaunch} 
                   size="default"
                   className="bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed px-6"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !formData.agreedToTerms}
                 >
                   <img 
                     src="/logo.png" 
