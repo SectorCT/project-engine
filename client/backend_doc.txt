@@ -1,106 +1,105 @@
-Frontend Integration Guide
-1. Authentication
-All endpoints + WebSocket connections require a JWT access token issued by the existing auth API.
-Register: POST /api/auth/register/
-Login: POST /api/auth/login/
-Use the access token in Authorization: Bearer <token> for every HTTP request.
-For WebSockets, send the same header if your client supports it. While ALLOW_WS_TOKEN_QUERY=true (dev mode), you can also append ?token=<access_token> to the WS URL for testing.
-2. Job Lifecycle Overview
-User submits an “idea” via POST /api/jobs/ – this stores a job in status `collecting` and immediately triggers the first Client Relations agent reply.
-The frontend connects to the job’s WebSocket channel and renders the chat + subsequent statuses in real time.
-Once the agent emits REQUIREMENTS_SUMMARY, the backend flips the job to `queued` and enqueues the Celery task; the executive build phase runs asynchronously and streams `jobStatus` / `stageUpdate` / `agentDialogue` / `prdReady` events over the same socket. After the PRD is produced you will see `prd_ready` → `ticketing` → `tickets_ready` statuses as the ticket pass executes.
-The frontend can query REST endpoints any time to reconcile state (jobs, messages, final app artifact).
-3. REST APIs
-3.1 Jobs
-Method	Path	Description
-POST	/api/jobs/	Create a job. Body: {"prompt":"Initial idea..."}. Response contains job id.
-GET	/api/jobs/	List jobs for the current user (most recent first).
-GET	/api/jobs/<job_id>/	Job detail with steps and messages.
-PATCH	/api/jobs/<job_id>/	Update initial_prompt while status is collecting. (Keeps prompts in sync.)
-DELETE	/api/jobs/<job_id>/	Delete a single job (user-owned).
-DELETE	/api/jobs/purge/	Dev only (guarded by ALLOW_JOB_PURGE) – delete all jobs for the current user.
-3.2 Job Messages
-These endpoints mirror the WebSocket transcript so the UI can load history on reconnect.
-Method	Path	Usage
-GET	/api/job-messages/?job_id=<job_id>	List messages (oldest → newest) for a job.
-GET	/api/job-messages/<message_id>/	Fetch a single message.
-POST	/api/job-messages/	Programmatically add a message (rare; mostly for admin/dev tooling). Body: {"job_id":"…","role":"user|agent|system","sender":"Name","content":"..."}.
-DELETE	/api/job-messages/<message_id>/	Remove a message (again, mostly for dev/admin).
-In normal operation the WebSocket handles chat creation; REST listing is primarily for “load on reconnect”.
-3.3 Apps (final artifacts)
-Method	Path	Description
-GET	/api/apps/	List apps owned by the user.
-GET	/api/apps/<app_id>/	Retrieve one app.
-GET	/api/apps/by-job/<job_id>/	Fetch the app belonging to a specific job (204 if job finished but no app yet).
-3.4 Tickets
-Method	Path	Description
-GET	/api/tickets/?job_id=<job_id>	List all tickets (epics + stories) for the job with parent/dependency metadata.
-GET	/api/tickets/<ticket_id>/	Retrieve a single ticket (owner-scoped).
-3.5 Build artifacts (Docker workspace)
-Method	Path	Description
-GET	/api/jobs/<job_id>/files/structure/?path=/app	Returns a tree of directories/files within the job’s Docker workspace (default `/app`). Use `limit` query param (1–1000, default 200) to cap how many entries the backend inspects per request.
-GET	/api/jobs/<job_id>/files/content/?path=/app/src/App.tsx	Reads the raw text of a file that lives inside the build container. Paths are sandboxed to `/app`.
-Container naming: every job spins up (or reuses) a dedicated Docker container called `project_engine_<job_id>_container`. The file APIs automatically target that container, so you can safely run/inspect multiple jobs in parallel without clobbering others. The fallback container `project_engine_builder_container` is only used for CLI/dev flows without a job id.
+Frontend Integration Guide (API Reference)
+=========================================
 
-4. WebSocket Protocol
-URL:
-ws://<host>:8000/ws/jobs/<job_id>/
-Headers: Authorization: Bearer <token>
-For dev/testing, ws://<host>:8000/ws/jobs/<job_id>/?token=<token> also works.
-Message Types from server (payload.kind):
-Kind	Payload fields	Meaning
-stageUpdate	role, sender, content, metadata, timestamp	A conversation turn from user/agent/system (metadata.type=description for stage narrations). Every new message is persisted.
-jobStatus	jobId, status, message, timestamp	High-level job status change (`collecting`, `queued`, `planning`, `prd_ready`, `ticketing`, `tickets_ready`, `building`, `build_done`, `failed`).
-agentDialogue	jobId, agent, message, order, timestamp	Executive discussion turn (CEO/CTO/Secretary sequence).
-prdReady	jobId, spec, prdMarkdown, timestamp	PRD + structured spec is available (also saved to the `App` model).
-ticketUpdate	jobId, ticketId, status, title, assignedTo, message, metadata, timestamp	Per-ticket lifecycle progress (`todo` → `in_progress` → `done/failed`). Metadata can include log snippets or stage names.
-ticketReset	jobId, timestamp	Tells the UI to refresh the ticket list (emitted right before the backlog is rewritten).
-error	message	Validation errors on incoming client payloads (e.g., malformed JSON).
-Messages from client → server:
-Only kind="chat" is currently supported.
-The backend derives the sender info from the authenticated user.
-The message is persisted via JobMessage, broadcast to all connected clients, and forwarded to the requirements gatherer while the job is in collecting.
-5. Frontend Flow
-5.1 On page load / job view:
-Fetch job list (GET /api/jobs/).
-When the user opens a job detail:
-Fetch job detail (GET /api/jobs/<id>/) to get steps + messages snapshot.
-Connect WebSocket to /ws/jobs/<id>/ with JWT.
-Render existing messages (from REST) in chronological order.
-Listen for live chat, status, step, PRD, and ticket events and merge them into state.
-Allow user to send new chat messages via WS by posting {"kind":"chat","content":"..."}.
-5.2 After requirements summary:
-You’ll see status switch to `queued` and a chat message containing the summary.
-Keep the socket open; soon you’ll receive status → `planning` as CEO/CTO/Secretary messages stream via `agentDialogue`.
-Once the PRD is stored you’ll get a `prdReady` payload and status `prd_ready`. The system immediately moves into `ticketing`, then `tickets_ready` once all tickets are persisted, and finally `building` → `build_done` as the implementation agents execute every ticket. Optionally call GET /api/apps/by-job/<id>/ for the stored artifact and `/api/tickets/?job_id=<id>` for the backlog snapshot.
-5.3 Handling reconnects:
-Always read from /api/job-messages/?job_id=<id> when reconnecting so the chat history matches state before the WS was reopened. For the ticket board, fetch `/api/tickets/?job_id=<id>` once the job reaches `tickets_ready` so you have the latest backlog before streaming `ticketUpdate` events.
-Keep track of job.status. If it’s still `collecting`, you can continue sending chat events. Once it transitions to `queued` (or any later phase), disable the input because the gatherer phase is over. When status hits `building`, show the ticket execution log fed by `ticketUpdate` messages.
-6. Dev/Testing Tips
-.envtemplate exposes ALLOW_WS_TOKEN_QUERY and ALLOW_JOB_PURGE (default True in DEBUG). In production, set them to False.
-To start from a clean state during development: DELETE /api/jobs/purge/.
-For quick REST smoke tests:
-WebSocket testing via Postman:
-URL: ws://localhost:8000/ws/jobs/<id>/?token=<token>
-Message type: Text
-JSON body: {"kind":"chat","content":"Here are more details..."}
-With this flow the frontend can bootstrap state from REST, stream live updates via WS, and rely on the same JobMessage store for both. Let me know if you need a Postman collection or example React hooks for handling the socket.
+This document lists every REST + WebSocket primitive the frontend needs to fully mirror the multi-agent workflow, including the continuation flow and container/file controls.
 
+1. Authentication & Setup
+-------------------------
+* Register: `POST /api/auth/register/` (body: `{"email":"","password":"","name":""}`)
+* Login: `POST /api/auth/login/` (returns `access` + `refresh`)
+* Authenticated REST calls must send `Authorization: Bearer <access>`.
+* WebSocket auth:
+  * Preferred: send cookies/headers.
+  * Dev fallback: `ws://<host>:8000/ws/jobs/<job_id>/?token=<access>` works when `ALLOW_WS_TOKEN_QUERY=true`.
 
+2. Job Lifecycle REST APIs
+--------------------------
+| Method | Path | Purpose |
+| ------ | ---- | ------- |
+| POST | `/api/jobs/` | Create a job. Body `{"prompt":"...idea..."}`. Response includes `id` and initial status `collecting`. Immediately triggers the first agent reply. |
+| GET | `/api/jobs/` | List all jobs for the current user (descending by `created_at`). Use to populate dashboard. |
+| GET | `/api/jobs/<job_id>/` | Detailed job snapshot, including stored steps/messages. Call on page load and after reconnect. |
+| PATCH | `/api/jobs/<job_id>/` | Update `initial_prompt` while `status === collecting`. Body `{"initial_prompt": "new text"}`; backend mirrors `prompt`. |
+| DELETE | `/api/jobs/<job_id>/` | Remove a single job. Best effort stops its Docker container. |
+| DELETE | `/api/jobs/purge/` | Dev-only nuke for all of the user’s jobs (guarded by `ALLOW_JOB_PURGE`). |
 
+3. Chat History APIs
+--------------------
+Used to hydrate transcripts after reconnect.
+
+| Method | Path | Notes |
+| ------ | ---- | ----- |
+| GET | `/api/job-messages/?job_id=<job_id>` | Returns ordered chat history. Use immediately after login or when WebSocket drops. |
+| GET | `/api/job-messages/<message_id>/` | Fetch a single message if you need random access. |
+| POST | `/api/job-messages/` | Mostly admin/dev tooling; regular chat should go via WebSocket. |
+| DELETE | `/api/job-messages/<id>/` | Dev/admin cleanup. |
+
+4. Continuation (“continue thingy”)
+----------------------------------
+Allows adding new requirements after the first build completes.
+
+* Endpoint: `POST /api/jobs/<job_id>/continue/`
+* Body: `{"requirements":"Add PDF export ..."}`
+* Behavior: returns `202 Accepted {"detail":"Continuation queued."}` and enqueues BA -> exec -> PM -> builder pipeline again.
+* Guard rails: backend rejects if the job is still running or another continuation is in progress.
+* Progress: streamed over the same WebSocket (chat/status/ticket updates). Re-fetch job detail to see the updated summary/messages.
+
+5. WebSocket Protocol (chat through build completion)
+-----------------------------------------------------
+* URL: `ws://<host>:8000/ws/jobs/<job_id>/`
+* Events (each payload has `kind`):
+  * `stageUpdate`: conversational message (`role`, `sender`, `content`, `metadata.stage`). Includes both human chat and system descriptions.
+  * `jobStatus`: lifecycle updates (`status` ∈ `collecting`, `queued`, `planning`, `prd_ready`, `ticketing`, `tickets_ready`, `building`, `build_done`, `failed`).
+  * `agentDialogue`: CEO/CTO/Secretary discussion turns (display in timeline).
+  * `prdReady`: PRD/spec is ready; also persisted to `App`.
+  * `ticketUpdate`: ticket execution feed (`ticketId`, `status`, `title`, `assignedTo`, optional metadata/logs).
+  * `ticketReset`: emitted right before a new backlog snapshot is persisted; refetch `/api/tickets/?job_id=...` when seen.
+  * `error`: backend couldn’t parse/accept the incoming payload.
+* Client → server: send `{"kind":"chat","content":"..."}` to talk to Client Relations while status is `collecting`. After that phase, the backend ignores chat payloads.
+
+6. Ticket & Build APIs
+----------------------
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| GET | `/api/tickets/?job_id=<job_id>` | Snapshot of persisted tickets (epics + stories). Call once after `tickets_ready` and whenever you see a `ticketReset` event. |
+| GET | `/api/tickets/<ticket_id>/` | Single ticket details (if you need to render drill-down). |
+
+7. Container Control + File Browsing
+------------------------------------
+These APIs let the frontend start the per-job workspace container and browse files for preview.
+
+| Method | Path | Usage |
+| ------ | ---- | ----- |
+| POST | `/api/jobs/<job_id>/containers/start` | Start/restart the Docker container tied to the job. Returns `{"detail":"Job container is running."}` when successful. Use when a user opens the “Files” tab or wants to interact with the dev server. |
+| POST | `/api/jobs/<job_id>/containers/stop` | Gracefully stop the container. Call when closing the job or freeing resources. |
+| GET | `/api/jobs/<job_id>/files/structure/?path=/app&limit=200` | Returns a directory tree rooted at `/app`. Use for file explorer UIs. `limit` caps how many entries get inspected (1–1000). |
+| GET | `/api/jobs/<job_id>/files/content/?path=/app/src/App.tsx` | Streams file contents (UTF-8 text). Use to show code previews; path is sandboxed to `/app`. |
+| POST | `/api/jobs/<job_id>/files/save` | Body: `{"path":"/app/src/App.tsx","content":"new text","encoding":"utf-8"}`. Persists edits inside the job container (max ~512 KB per request). Returns `{path, bytes_written, size, modified_at}`. |
+
+8. Working End-to-End
+---------------------
+1. **Create job** via `POST /api/jobs/`.
+2. **Load details** (`GET /api/jobs/<id>/`) and **connect WS** to stream chat/status.
+3. **Render chat**:
+   * Use REST history for initial messages.
+   * Append `stageUpdate` events as they arrive.
+   * Keep the input enabled until `jobStatus` > `collecting`.
+4. **Monitor statuses** (`jobStatus`, `agentDialogue`, `prdReady`).
+5. **Tickets**:
+   * After `tickets_ready`, call `/api/tickets/?job_id=...`.
+   * Update ticket board on every `ticketUpdate`.
+6. **Continuation**:
+   * Show a button when `job.status` ∈ `{build_done, failed}`.
+   * On click, POST to `/api/jobs/<id>/continue/`, then rely on the existing WS stream for progress.
+7. **Containers/files**:
+   * Start container when user opens the file view (`POST .../containers/start`).
+   * Use structure/content endpoints to pull files.
+   * Optional stop when user leaves the page.
+
+9. Troubleshooting Tips
 -----------------------
+* WebSocket closes with `4001/4003/1008`: token missing/invalid → refresh login.
+* `ticketReset` storm: fetch the latest tickets snapshot; builder is regenerating the backlog.
+* Continuation rejected (`409`): either job still running or another continuation is queued—disable the button until status returns to `build_done` or `failed`.
 
-Real-time Job Events
-Each WebSocket message carries a kind field. Subscribe to /ws/jobs/<job_id>/ and handle the payloads as follows:
-1. jobStatus  
-Use this to update any dashboards or per-job progress UI. Every payload contains `jobId`, the new status (`collecting → … → build_done`), and a short message.
-2. stageUpdate  
-This is the narrative feed (user ↔ agent chat plus backend-generated descriptions with `metadata.type=description`). Show it as the running commentary of what’s happening right now.
-3. agentDialogue  
-These are the executive-agent discussion turns. Render them in a dedicated timeline/transcript once the job hits `planning`.
-4. prdReady  
-Emitted once the PRD/spec is persisted. Use it to refresh your PRD viewer or call `GET /api/apps/by-job/<id>/`.
-5. ticketUpdate  
-Hook this into your backlog / implementation UI. It includes `ticketId`, the new status, and optional metadata for logs or stage names.
-6. ticketReset  
-Triggered before the backlog is regenerated. When you see it, re-fetch `/api/tickets/?job_id=<id>` so the UI matches the latest snapshot.
+With these REST+WS primitives the frontend can replicate the entire agent experience: requirements chat, executive updates, PRD handoff, ticket execution, continuation requests, and Docker file inspection. Reach out if you need sample hooks or mocked payloads.

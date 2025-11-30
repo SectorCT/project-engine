@@ -1,15 +1,17 @@
+import base64
 import logging
 import posixpath
 import shlex
+from datetime import datetime
 from typing import Dict, List, Optional
 
+from django.conf import settings
 from django.utils import timezone
 
 from .docker_utils import (
     ContainerNotFound,
     ContainerNotRunning,
     build_find_command,
-    build_stat_command,
     ensure_container_running,
     exec_in_container,
     resolve_container,
@@ -28,6 +30,14 @@ class FileStructureError(Exception):
 
 class FileContentError(Exception):
     """Raised when a file cannot be read."""
+
+    def __init__(self, message: str, kind: str = 'error'):
+        super().__init__(message)
+        self.kind = kind
+
+
+class FileWriteError(Exception):
+    """Raised when a file cannot be written."""
 
     def __init__(self, message: str, kind: str = 'error'):
         super().__init__(message)
@@ -153,4 +163,66 @@ def read_file(job_id: str, path: str) -> Dict[str, str]:
         raise FileContentError(str(exc)) from exc
 
 
+def write_file(job_id: str, path: str, content: str, *, encoding: str = 'utf-8') -> Dict[str, str]:
+    normalized = _normalize_path(path)
+    if not isinstance(content, str):
+        raise FileWriteError('Content must be a string')
+    max_bytes = getattr(settings, 'ARTIFACT_MAX_WRITE_BYTES', 512 * 1024)
+    payload = content.encode(encoding)
+    if len(payload) > max_bytes:
+        raise FileWriteError(f'File content exceeds limit of {max_bytes} bytes')
 
+    b64_content = base64.b64encode(payload).decode('ascii')
+    script = (
+        "import base64, pathlib\n"
+        f"path = pathlib.Path({repr(normalized)})\n"
+        f"data = base64.b64decode({repr(b64_content)})\n"
+        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+        "path.write_bytes(data)\n"
+    )
+
+    try:
+        container = resolve_container(job_id)
+        ensure_container_running(container)
+
+        def _run_python(cmd: str) -> bool:
+            exit_code, _ = exec_in_container(container, cmd, workdir='/app')
+            return exit_code == 0
+
+        if not (
+            _run_python(['python3', '-c', script])
+            or _run_python(['python', '-c', script])
+        ):
+            raise FileWriteError('Failed to write file')
+
+        stat_exit, stat_output = exec_in_container(
+            container,
+            ['stat', '-c', '%Y|%s', normalized],
+            workdir='/app',
+        )
+        modified_ts = timezone.now().isoformat()
+        size_on_disk = len(payload)
+        if stat_exit == 0:
+            parts = stat_output.strip().split('|')
+            if len(parts) == 2:
+                try:
+                    modified_ts = datetime.fromtimestamp(float(parts[0]), tz=timezone.utc).isoformat()
+                    size_on_disk = int(parts[1])
+                except Exception:  # pragma: no cover - best effort parsing
+                    pass
+
+        return {
+            'path': normalized,
+            'bytes_written': len(payload),
+            'size': size_on_disk,
+            'modified_at': modified_ts,
+        }
+    except ContainerNotFound as exc:
+        raise FileWriteError('Container not found', kind='not_found') from exc
+    except ContainerNotRunning as exc:
+        raise FileWriteError('Container is not running', kind='not_running') from exc
+    except FileWriteError:
+        raise
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception('Failed to write file %s for job %s', normalized, job_id)
+        raise FileWriteError(str(exc)) from exc

@@ -8,7 +8,14 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .artifact_service import FileContentError, FileStructureError, get_file_structure, read_file
+from .artifact_service import (
+    FileContentError,
+    FileStructureError,
+    FileWriteError,
+    get_file_structure,
+    read_file,
+    write_file,
+)
 from .docker_utils import ContainerNotFound, start_container, stop_container
 from .models import App, Job, JobMessage, Ticket
 from .serializers import (
@@ -140,6 +147,24 @@ class JobViewSet(
         except FileContentError as exc:
             return self._artifact_error_response(exc)
         return Response(payload)
+
+    @action(detail=True, methods=('post',), url_path='files/save')
+    def file_save(self, request, id=None):
+        job = self.get_object()
+        path = request.data.get('path')
+        content = request.data.get('content')
+        encoding = request.data.get('encoding', 'utf-8')
+
+        if path is None:
+            return Response({'detail': 'Field "path" is required'}, status=status.HTTP_400_BAD_REQUEST)
+        if content is None:
+            return Response({'detail': 'Field "content" is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payload = write_file(str(job.id), path, content, encoding=encoding)
+        except FileWriteError as exc:
+            return self._artifact_error_response(exc)
+        return Response(payload, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=('post',), url_path='containers/start')
     def start_container(self, request, id=None):
