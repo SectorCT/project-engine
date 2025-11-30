@@ -48,7 +48,7 @@ def get_docker_client() -> docker.DockerClient:
         else:
             # Fallback: try docker.from_env() which reads DOCKER_HOST env var
             # This is useful if DOCKER_HOST is set to a different socket path
-    return docker.from_env()
+            return docker.from_env()
     except docker.errors.DockerException as e:
         raise RuntimeError(
             f"Cannot connect to Docker daemon. Socket file '{default_socket_path}' not found or not accessible. "

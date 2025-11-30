@@ -923,6 +923,7 @@ export default function LiveBuild() {
               tickets={tickets}
               jobStatus={job?.status}
               errorMessage={job?.error_message}
+              jobId={id}
             />
           </motion.div>
 

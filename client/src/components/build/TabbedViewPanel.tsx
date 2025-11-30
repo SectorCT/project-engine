@@ -27,6 +27,7 @@ interface TabbedViewPanelProps {
   tickets?: Ticket[];
   jobStatus?: string;
   errorMessage?: string;
+  jobId?: string;
 }
 
 const deviceDimensions = {
@@ -44,6 +45,7 @@ export const TabbedViewPanel = ({
   tickets = [],
   jobStatus,
   errorMessage,
+  jobId,
 }: TabbedViewPanelProps) => {
   const [device, setDevice] = useState<"desktop" | "mobile">(
     initialDevice as "desktop" | "mobile"
@@ -151,6 +153,7 @@ export const TabbedViewPanel = ({
             <CodeViewer
               filePath={activeTab.filePath || ""}
               content={activeTab.content}
+              jobId={jobId}
             />
           </div>
         )}

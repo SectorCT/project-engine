@@ -1,10 +1,12 @@
+import { useState, useEffect } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { File } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface CodeViewerProps {
   filePath: string;
-  content: string;
-  language?: string;
+  content?: string;
+  jobId?: string;
 }
 
 // Mock code content for different files
@@ -129,17 +131,63 @@ export function debounce<T extends (...args: any[]) => any>(
 }`,
 };
 
-export const CodeViewer = ({ filePath, content, language }: CodeViewerProps) => {
+export const CodeViewer = ({ filePath, content: initialContent, jobId }: CodeViewerProps) => {
+  const [content, setContent] = useState<string | null>(initialContent || null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileName = filePath.split("/").pop() || filePath;
+
+  useEffect(() => {
+    // If content is already provided, use it
+    if (initialContent) {
+      setContent(initialContent);
+      return;
+    }
+
+    // If no jobId, can't fetch
+    if (!jobId || !filePath) {
+      setContent(mockCodeContent[fileName] || `// No content available for ${fileName}`);
+      return;
+    }
+
+    // Fetch content from API
+    setIsLoading(true);
+    setError(null);
+    api.getFileContent(jobId, filePath)
+      .then((response) => {
+        setContent(response.content || `// No content available for ${fileName}`);
+      })
+      .catch((err) => {
+        const errorMessage = err?.detail || err?.message || "Failed to load file content";
+        setError(errorMessage);
+        setContent(`// Error loading file: ${errorMessage}`);
+        console.error("Error fetching file content:", err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [filePath, jobId, initialContent, fileName]);
+
   const codeContent = content || mockCodeContent[fileName] || `// No content available for ${fileName}`;
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">
       <ScrollArea className="flex-1">
         <div className="p-4">
-          <pre className="text-sm font-mono leading-relaxed">
-            <code className="text-foreground whitespace-pre">{codeContent}</code>
-          </pre>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading file content...</span>
+            </div>
+          ) : error ? (
+            <div className="text-sm text-destructive py-8">
+              Error: {error}
+            </div>
+          ) : (
+            <pre className="text-sm font-mono leading-relaxed">
+              <code className="text-foreground whitespace-pre">{codeContent}</code>
+            </pre>
+          )}
         </div>
       </ScrollArea>
     </div>

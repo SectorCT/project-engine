@@ -35,10 +35,10 @@ class DockerEnv:
             if os.path.exists(default_socket_path):
                 # Use the mounted socket - this allows the container to control the host's Docker daemon
                 self.client = docker.DockerClient(base_url=f'unix://{default_socket_path}')
-        else:
+            else:
                 # Fallback: try docker.from_env() which reads DOCKER_HOST env var
                 # This is useful if DOCKER_HOST is set to a different socket path
-            self.client = docker.from_env()
+                self.client = docker.from_env()
         except docker.errors.DockerException as e:
             raise RuntimeError(
                 f"Cannot connect to Docker daemon. Socket file '{default_socket_path}' not found or not accessible. "

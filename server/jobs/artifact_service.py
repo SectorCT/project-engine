@@ -59,7 +59,14 @@ def _normalize_path(raw_path: str) -> str:
     return normalized
 
 
-def _build_tree(entries: List[str]) -> Dict[str, dict]:
+def _build_tree(entries: List[str], entry_type: str = 'file') -> Dict[str, dict]:
+    """
+    Build a tree structure from file or directory paths.
+    
+    Args:
+        entries: List of absolute paths (e.g., ['/app/src/App.tsx', '/app/src/components'])
+        entry_type: 'file' or 'dir' - determines the type of the leaf nodes
+    """
     tree: Dict[str, dict] = {}
     for entry in entries:
         rel_path = entry.replace('/app', '').lstrip('/')
@@ -71,21 +78,29 @@ def _build_tree(entries: List[str]) -> Dict[str, dict]:
 
         cursor = tree
         for idx, part in enumerate(parts):
-            is_file = idx == len(parts) - 1
+            is_leaf = idx == len(parts) - 1
             node = cursor.setdefault(
                 part,
                 {
                     'name': part,
-                    'path': entry if is_file else None,
-                    'type': 'file' if is_file else 'dir',
-                    'children': {} if not is_file else None,
+                    'path': entry if is_leaf else None,
+                    'type': entry_type if is_leaf else 'dir',
+                    'children': {} if not is_leaf else None,
                 },
             )
-            if is_file:
+            if is_leaf:
+                # Leaf node - set the type and path
                 node['path'] = entry
-                node['type'] = 'file'
-                node['children'] = None
+                node['type'] = entry_type
+                if entry_type == 'file':
+                    node['children'] = None
+                else:
+                    # For directories, ensure children dict exists
+                    if node['children'] is None:
+                        node['children'] = {}
             else:
+                # Intermediate node - always a directory
+                node['type'] = 'dir'
                 if node['children'] is None:
                     node['children'] = {}
                 cursor = node['children']
@@ -97,8 +112,15 @@ def _tree_to_list(tree: Dict[str, dict]) -> List[dict]:
     for key in sorted(tree.keys()):
         node = tree[key]
         data = {'name': node['name'], 'path': node['path'], 'type': node['type']}
-        if node['type'] == 'dir' and node.get('children'):
-            data['children'] = _tree_to_list(node['children'])
+        if node['type'] == 'dir':
+            # Always include children for directories, even if empty
+            # This ensures empty directories are properly represented
+            if node.get('children') is not None:
+                children_list = _tree_to_list(node['children'])
+                data['children'] = children_list
+            else:
+                # Directory with no children property - should not happen, but handle it
+                data['children'] = []
         items.append(data)
     return items
 
@@ -118,8 +140,9 @@ def get_file_structure(job_id: str, path: str = '/app', limit: int = 200) -> Lis
         files = [line.strip() for line in file_output.splitlines() if line.strip()]
         dirs = [line.strip() for line in dir_output.splitlines() if line.strip()]
 
-        tree = _build_tree(dirs)
-        file_tree = _build_tree(files)
+        # Build trees with correct types
+        tree = _build_tree(dirs, entry_type='dir')
+        file_tree = _build_tree(files, entry_type='file')
 
         # Merge file tree entries into directory tree
         for key, value in file_tree.items():
