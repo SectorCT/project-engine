@@ -377,20 +377,14 @@ def build_phase(prd_path: str = None, project_id: str = None, skip_init: bool = 
         # We explicitly do NOT stop the container as requested - it persists for this project
         container_name = docker_env.container_name
         
-        # Get the actual ports from the container
+        # Get the actual frontend port from the container
         frontend_port = 3000
-        mongodb_port = 6666
-        backend_port = None
         if docker_env.container:
             try:
                 container_info = docker_env.container.attrs
                 port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
                 if '3000/tcp' in port_bindings:
                     frontend_port = int(port_bindings['3000/tcp'][0]['HostPort'])
-                if '27017/tcp' in port_bindings:
-                    mongodb_port = int(port_bindings['27017/tcp'][0]['HostPort'])
-                if '5000/tcp' in port_bindings:
-                    backend_port = int(port_bindings['5000/tcp'][0]['HostPort'])
             except Exception:
                 pass  # Use defaults if we can't get port info
         
@@ -418,22 +412,8 @@ def build_phase(prd_path: str = None, project_id: str = None, skip_init: bool = 
         # Give servers a moment to start
         time.sleep(2)
         
-        print(f"\n✅ Build complete!")
-        print(f"\n📡 Services are running:")
         if has_frontend:
-            print(f"   Frontend: http://localhost:{frontend_port}")
-        if has_backend:
-            if backend_port:
-                print(f"   Backend API: http://localhost:{backend_port}")
-            else:
-                print(f"   Backend API: http://localhost:{frontend_port}/api (via frontend proxy)")
-            print(f"   MongoDB: mongodb://localhost:{mongodb_port}")
-        print(f"\n📦 Container: {container_name}")
-        print(f"   To view logs: docker exec {container_name} tail -f /tmp/server.log (backend)")
-        print(f"                 docker exec {container_name} tail -f /tmp/vite.log (frontend)")
-        print(f"   To stop: docker stop {container_name}")
-        print(f"   To remove: docker rm {container_name}")
-        # docker_env.stop_container()
+            print(f"http://localhost:{frontend_port}")
 
 
 def init_structure_only(prd_path: str = None):

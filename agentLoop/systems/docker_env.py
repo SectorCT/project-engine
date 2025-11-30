@@ -7,15 +7,15 @@ import hashlib
 from typing import Dict, Any
 from config.settings import settings
 
-def get_port_for_project(project_id: str, port_base: int = 48000, port_range: int = 1000) -> int:
+def get_port_for_project(project_id: str, port_base: int = 20000, port_range: int = 29000) -> int:
     """
     Deterministically assign a port in the range [port_base, port_base + port_range) 
     based on project_id hash.
     
     Args:
         project_id: Unique project identifier
-        port_base: Starting port number (default 48000)
-        port_range: Number of ports available (default 1000, so range is 48000-48999)
+        port_base: Starting port number (default 20000)
+        port_range: Number of ports available (default 29000, so range is 20000-48999)
     
     Returns:
         Port number in the specified range
@@ -77,16 +77,9 @@ class DockerEnv:
         """
         # Calculate expected ports based on project_id
         if self.project_id:
-            frontend_port = get_port_for_project(self.project_id, port_base=48000, port_range=1000)
-            if has_backend:
-                mongodb_port = frontend_port + 1
-                if mongodb_port >= 49000:
-                    mongodb_port = frontend_port - 1
-            else:
-                mongodb_port = None
+            frontend_port = get_port_for_project(self.project_id, port_base=20000, port_range=29000)
         else:
             frontend_port = 3000
-            mongodb_port = 6666 if has_backend else None
         
         try:
             # Check if container already exists
@@ -98,17 +91,6 @@ class DockerEnv:
                 if container_status == 'running':
                     print(f"Container {self.container_name} is already running. Reusing existing container.")
                     self.container = existing_container
-                    # Print actual ports being used
-                    try:
-                        port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
-                        if '3000/tcp' in port_bindings:
-                            actual_frontend = int(port_bindings['3000/tcp'][0]['HostPort'])
-                            print(f"  Frontend: http://localhost:{actual_frontend}")
-                        if '27017/tcp' in port_bindings and has_backend:
-                            actual_mongodb = int(port_bindings['27017/tcp'][0]['HostPort'])
-                            print(f"  MongoDB: mongodb://localhost:{actual_mongodb}")
-                    except Exception:
-                        pass
                     return
                 elif container_status in ['exited', 'stopped']:
                     print(f"Container {self.container_name} exists but is stopped. Resuming container...")
@@ -117,18 +99,6 @@ class DockerEnv:
                     # Wait a moment for the container to stabilize
                     time.sleep(2)
                     print(f"✅ Container {self.container_name} resumed successfully.")
-                    # Print actual ports being used
-                    try:
-                        container_info = existing_container.attrs
-                        port_bindings = container_info.get('HostConfig', {}).get('PortBindings', {})
-                        if '3000/tcp' in port_bindings:
-                            actual_frontend = int(port_bindings['3000/tcp'][0]['HostPort'])
-                            print(f"  Frontend: http://localhost:{actual_frontend}")
-                        if '27017/tcp' in port_bindings and has_backend:
-                            actual_mongodb = int(port_bindings['27017/tcp'][0]['HostPort'])
-                            print(f"  MongoDB: mongodb://localhost:{actual_mongodb}")
-                    except Exception:
-                        pass
                     return
                 else:
                     # Container is in an unexpected state, remove and recreate
@@ -146,12 +116,6 @@ class DockerEnv:
             
             # Assign ports dynamically based on project_id
             ports = {'3000/tcp': frontend_port}
-            if has_backend and mongodb_port:
-                ports['27017/tcp'] = mongodb_port
-            
-            print(f"  Frontend port: {frontend_port} (container:3000 -> host:{frontend_port})")
-            if has_backend and mongodb_port:
-                print(f"  MongoDB port: {mongodb_port} (container:27017 -> host:{mongodb_port})")
             
             # Create persistent container (not ephemeral)
             # Container will persist across restarts

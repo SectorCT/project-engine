@@ -1,6 +1,8 @@
 import sys
 import os
 import time
+import re
+import base64
 from typing import Any, Dict, List, Optional
 from agents.pm_agent import PMAgent
 from agents.coder_agent import CoderAgent
@@ -59,7 +61,120 @@ class BuildCallbackAdapter:
             except Exception:
                 pass
 
-def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
+
+def _parse_and_create_todo_tickets(docker_env: DockerEnv, ticket_system: TicketSystem, has_backend: bool, has_frontend: bool):
+    """
+    Parse the project for TODO comments and create tickets for them.
+    Looks for comments in format: TODO: detailed description ENDTODO
+    """
+    print("\n🔍 Scanning project for TODO comments...")
+    
+    # Get all code files from the container
+    # Search for common code file extensions
+    code_extensions = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.cpp', '.c']
+    
+    todos_found = []
+    
+    # Find all code files
+    # Build find command with proper OR conditions
+    name_conditions = ' -o '.join([f'-name "*{ext}"' for ext in code_extensions])
+    find_cmd = f'''bash -c "find /app -type f \\( {name_conditions} \\) 2>/dev/null | grep -v node_modules | grep -v .git"'''
+    exit_code, output = docker_env.exec_run(find_cmd, silent=True)
+    
+    if exit_code != 0:
+        return
+    
+    files = [f.strip() for f in output.split('\n') if f.strip()]
+    
+    # Pattern to match TODO: ... ENDTODO (multiline or single line)
+    todo_pattern = re.compile(r'TODO:\s*(.*?)\s*ENDTODO', re.DOTALL | re.IGNORECASE)
+    
+    for file_path in files:
+        if not file_path or not os.path.basename(file_path):
+            continue
+        
+        try:
+            # Read file content using Python to handle special characters properly
+            # Base64 encode the file path to avoid shell escaping issues
+            file_path_b64 = base64.b64encode(file_path.encode('utf-8')).decode('ascii')
+            read_cmd = f'''python3 -c "import base64, sys; path = base64.b64decode('{file_path_b64}').decode('utf-8'); content = open(path, 'r', errors='ignore').read(); print(content)"'''
+            exit_code, content = docker_env.exec_run(read_cmd, silent=True)
+            
+            if exit_code != 0 or not content:
+                continue
+            
+            # Find all TODOs in this file
+            matches = todo_pattern.findall(content)
+            
+            for match in matches:
+                todo_description = match.strip()
+                if todo_description:
+                    todos_found.append({
+                        'file': file_path,
+                        'description': todo_description
+                    })
+        except Exception:
+            continue
+    
+    if not todos_found:
+        print("   No TODO comments found.")
+        return
+    
+    print(f"   Found {len(todos_found)} TODO comment(s). Creating tickets...")
+    
+    # Determine if TODO is frontend or backend based on file path
+    for todo in todos_found:
+        file_path = todo['file']
+        description = todo['description']
+        
+        # Determine if it's frontend or backend
+        is_frontend = any(path in file_path for path in ['/client/', '/src/', '/frontend/', 'client/', 'src/', 'frontend/'])
+        is_backend = any(path in file_path for path in ['/server/', '/backend/', '/api/', 'server/', 'backend/', 'api/'])
+        
+        # Determine ticket type and assignment
+        if is_frontend and has_frontend:
+            assigned_to = "Frontend Dev"
+        elif is_backend and has_backend:
+            assigned_to = "Backend Dev"
+        else:
+            # Default based on project structure
+            if has_frontend and not has_backend:
+                assigned_to = "Frontend Dev"
+            elif has_backend and not has_frontend:
+                assigned_to = "Backend Dev"
+            else:
+                assigned_to = "Developer"
+        
+        # Create a title from the first line of description
+        title_lines = description.split('\n')
+        first_line = title_lines[0].strip()[:80]  # Limit to 80 chars
+        if len(first_line) < len(description.strip()):
+            title = f"Implement: {first_line}..."
+        else:
+            title = f"Implement: {first_line}"
+        
+        # Create full description with context
+        full_description = f"TODO found in {file_path}\n\n{description}\n\nThis TODO was automatically detected and requires implementation."
+        
+        # Create ticket
+        try:
+            ticket_id = ticket_system.create_ticket(
+                type="story",
+                title=title,
+                description=full_description,
+                assigned_to=assigned_to,
+                dependencies=[],
+                parent_id=None
+            )
+            print(f"   ✅ Created ticket: {title} (ID: {ticket_id})")
+        except Exception as e:
+            print(f"   ⚠️  Failed to create ticket for TODO: {title}")
+    
+    if todos_found:
+        print(f"\n✅ Created {len(todos_found)} ticket(s) from TODO comments.")
+
+
+def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None, skip_init: bool = False):
     """
     The Build Phase:
     1. Get project structure info from tickets or determine has_backend/has_frontend
@@ -110,26 +225,46 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
     # 4. Initialize Docker Env
     workspace_path = os.getcwd()  # Not used for copying, but kept for compatibility
     docker_env = DockerEnv(workspace_path, project_id=job_id)
+    frontend_port = None
     
     try:
         cb.stage("Environment", "Building Docker image")
         docker_env.build_image()
         cb.stage("Environment", "Starting Docker container")
-        docker_env.start_container(has_backend=has_backend)
+        frontend_port = docker_env.start_container(has_backend=has_backend)
         
-        # 5. Initialize project structure in Docker
-        cb.stage("Environment", "Initializing project structure")
-        ProjectInitializer.init_project(project_structure, docker_env)
+        # Save frontend URL to App.spec if job_id is provided
+        if job_id and frontend_port:
+            try:
+                from django.apps import apps
+                App = apps.get_model('jobs', 'App')
+                Job = apps.get_model('jobs', 'Job')
+                job = Job.objects.get(id=job_id)
+                if hasattr(job, 'app'):
+                    app = job.app
+                    spec = app.spec or {}
+                    spec['frontend_url'] = f'http://localhost:{frontend_port}'
+                    app.spec = spec
+                    app.save(update_fields=['spec', 'updated_at'])
+                    print(f"✅ Saved frontend URL to App.spec: {spec['frontend_url']}")
+            except Exception as exc:
+                print(f"⚠️  Failed to save frontend URL to App.spec: {exc}")
         
-        # 5.5. Install npm dependencies
-        print("\nInstalling npm dependencies...")
-        cb.stage("Environment", "Installing npm dependencies")
-        exit_code, output = docker_env.exec_run("npm install", workdir="/app")
-        if exit_code == 0:
-            print("✅ npm install completed successfully!")
-        else:
-            print(f"⚠️  npm install had issues (exit code: {exit_code})")
-            print(f"Output: {output[:500]}")
+        # 5. Initialize project structure in Docker (skip if continuing existing project)
+        if not skip_init:
+            cb.stage("Environment", "Initializing project structure")
+            ProjectInitializer.init_project(project_structure, docker_env)
+        
+        # 5.5. Install npm dependencies (skip if continuing existing project)
+        if not skip_init:
+            print("\nInstalling npm dependencies...")
+            cb.stage("Environment", "Installing npm dependencies")
+            exit_code, output = docker_env.exec_run("npm install", workdir="/app")
+            if exit_code == 0:
+                print("✅ npm install completed successfully!")
+            else:
+                print(f"⚠️  npm install had issues (exit code: {exit_code})")
+                print(f"Output: {output[:500]}")
         
         # 6. Initialize Coder Agent
         coder_agent = CoderAgent()
@@ -195,8 +330,129 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
                     extra={'title': ticket.get('title')},
                 )
                 print(f"Ticket {ticket.get('title')} FAILED. Skipping.")
+        
+        # 8. After all initial tickets are done, parse project for TODOs and create tickets
+        all_tickets_after = ticket_system.get_tickets()
+        remaining_todo = [
+            t for t in all_tickets_after 
+            if t.get('status') == 'todo' and t.get('type') != 'epic'
+        ]
+        
+        if not remaining_todo:
+            # All initial tickets are done, parse for TODOs
+            print("\n🔍 All initial tickets completed. Scanning for TODO comments...")
+            cb.stage("TODO Parsing", "Scanning project for TODO comments")
+            _parse_and_create_todo_tickets(docker_env, ticket_system, has_backend, has_frontend)
+            
+            # 9. Process all TODO tickets that were just created
+            all_tickets_after_todos = ticket_system.get_tickets()
+            todo_tickets_from_parsing = [
+                t for t in all_tickets_after_todos 
+                if t.get('status') == 'todo' and t.get('type') != 'epic'
+            ]
+            
+            if todo_tickets_from_parsing:
+                print(f"\n📋 Processing {len(todo_tickets_from_parsing)} TODO ticket(s)...")
+                cb.stage("TODO Processing", f"Processing {len(todo_tickets_from_parsing)} TODO tickets")
+                
+                for ticket in todo_tickets_from_parsing:
+                    ticket_id = str(ticket.get('id') or ticket.get('_id') or '')
+                    cb.ticket(
+                        ticket,
+                        'in_progress',
+                        message=f"Starting TODO ticket {ticket.get('title')}",
+                        extra={'title': ticket.get('title')},
+                    )
+                    
+                    # Look up parent context if available
+                    parent_context = ""
+                    parent_id = ticket.get("parent_id")
+                    if parent_id:
+                        parent_epic = next(
+                            (
+                                t
+                                for t in all_tickets_after_todos
+                                if str(t.get('_id') or t.get('id')) == str(parent_id)
+                            ),
+                            None,
+                        )
+                        if parent_epic:
+                             parent_context = f"Title: {parent_epic.get('title')}\nDescription: {parent_epic.get('description')}"
+
+                    # Pass full context to the coder agent
+                    success = coder_agent.resolve_ticket(
+                        ticket, 
+                        docker_env, 
+                        parent_context=parent_context,
+                        project_structure=project_structure,
+                        all_tickets=all_tickets_after_todos
+                    )
+                    
+                    if success:
+                        ticket['status'] = 'done'
+                        if ticket_id:
+                            try:
+                                ticket_system.update_ticket_status(str(ticket_id), 'done')
+                            except Exception as exc:
+                                print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
+                        cb.ticket(
+                            ticket,
+                            'done',
+                            message=f"TODO ticket {ticket.get('title')} completed",
+                            extra={'title': ticket.get('title')},
+                        )
+                        print(f"TODO ticket {ticket.get('title')} marked as DONE.")
+                    else:
+                        ticket['status'] = 'failed'
+                        if ticket_id:
+                            try:
+                                ticket_system.update_ticket_status(str(ticket_id), 'failed', check_epic_completion=False)
+                            except Exception as exc:
+                                print(f"⚠️  Failed to update ticket status in TicketSystem: {exc}")
+                        cb.ticket(
+                            ticket,
+                            'failed',
+                            message=f"TODO ticket {ticket.get('title')} failed",
+                            extra={'title': ticket.get('title')},
+                        )
+                        print(f"TODO ticket {ticket.get('title')} FAILED. Skipping.")
                 
         cb.complete("Ticket execution finished")
+        
+        # Start server and client in background after build completion
+        if has_backend:
+            try:
+                cb.stage("Server Startup", "Starting backend server")
+                exit_code, output = docker_env.exec_run(
+                    "bash -c 'cd /app && nohup npm run server:dev > /tmp/server.log 2>&1 &'",
+                    workdir="/app",
+                    silent=True
+                )
+                if exit_code == 0:
+                    print("✅ Backend server started in background")
+            except Exception as exc:
+                print(f"⚠️  Failed to start backend server: {exc}")
+        
+        if has_frontend:
+            try:
+                cb.stage("Server Startup", "Starting frontend server")
+                exit_code, output = docker_env.exec_run(
+                    "bash -c 'cd /app && nohup npm run dev > /tmp/vite.log 2>&1 &'",
+                    workdir="/app",
+                    silent=True
+                )
+                if exit_code == 0:
+                    print("✅ Frontend server started in background")
+            except Exception as exc:
+                print(f"⚠️  Failed to start frontend server: {exc}")
+        
+        # Give servers a moment to start
+        time.sleep(2)
+        
+        if has_frontend and frontend_port:
+            frontend_url = f"http://localhost:{frontend_port}"
+            print(f"\n✅ Build complete! Frontend available at: {frontend_url}")
+            cb.log(f"Frontend available at: {frontend_url}")
     except Exception as exc:
         cb.error(str(exc))
         raise
@@ -204,7 +460,8 @@ def build_phase(job_id: Optional[str] = None, callbacks: Optional[Any] = None):
         # Cleanup
         # We explicitly do NOT stop the container as requested
         print("\nKeeping container running as requested.")
-        print("Container port 3000 is exposed - frontend accessible at http://localhost:3000")
+        if frontend_port:
+            print(f"Container port 3000 is exposed - frontend accessible at http://localhost:{frontend_port}")
         print(f"You can inspect the container with: docker exec {docker_env.container_name} ls -la /app")
         # docker_env.stop_container()
 

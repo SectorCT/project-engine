@@ -9,9 +9,9 @@ from typing import Optional
 from config.settings import settings
 
 
-def get_port_for_project(project_id: str, port_base: int = 48000, port_range: int = 1000) -> int:
+def get_port_for_project(project_id: str, port_base: int = 30000, port_range: int = 19000) -> int:
     """
-    Deterministically assign a host port for the per-job container (defaults to 48000-48999).
+    Deterministically assign a host port for the per-job container (defaults to 30000-49000).
     """
     hash_obj = hashlib.md5(project_id.encode('utf-8'))
     hash_int = int(hash_obj.hexdigest(), 16)
@@ -59,15 +59,12 @@ class DockerEnv:
         """
         Start or resume the container for this project.
         Existing containers are reused to keep artifacts accessible for debugging.
+        Returns the frontend port number.
         """
         if self.project_id:
-            frontend_port = get_port_for_project(self.project_id, port_base=48000, port_range=1000)
-            mongo_port = frontend_port + 1 if has_backend else None
-            if mongo_port and mongo_port >= 49000:
-                mongo_port = frontend_port - 1
+            frontend_port = get_port_for_project(self.project_id, port_base=30000, port_range=19000)
         else:
             frontend_port = 3000
-            mongo_port = 6666 if has_backend else None
 
         try:
             try:
@@ -76,15 +73,15 @@ class DockerEnv:
                 if status == 'running':
                     print(f"Container {self.container_name} already running. Reusing.")
                     self.container = existing
-                    self._log_ports(existing, has_backend)
-                    return
+                    self._log_ports(existing)
+                    return frontend_port
                 if status in {'exited', 'stopped'}:
                     print(f"Container {self.container_name} exists but is stopped. Starting...")
                     existing.start()
                     time.sleep(2)
                     self.container = existing
-                    self._log_ports(existing, has_backend)
-                    return
+                    self._log_ports(existing)
+                    return frontend_port
                 print(f"Container {self.container_name} in unexpected state '{status}'. Removing...")
                 existing.remove(force=True)
             except docker.errors.NotFound:
@@ -96,8 +93,6 @@ class DockerEnv:
                 environment["CURSOR_API_KEY"] = settings.CURSOR_API_KEY
 
             ports = {'3000/tcp': frontend_port}
-            if has_backend and mongo_port:
-                ports['27017/tcp'] = mongo_port
 
             self.container = self.client.containers.run(
                 self.image_name,
@@ -110,21 +105,18 @@ class DockerEnv:
                 log_config=docker.types.LogConfig(type=docker.types.LogConfig.types.JSON),
             )
             print(f"✅ Container {self.container_name} started.")
-            self._log_ports(self.container, has_backend)
+            self._log_ports(self.container)
             time.sleep(2)
+            return frontend_port
         except Exception as exc:
             print(f"Error starting container: {exc}")
             raise
 
-    def _log_ports(self, container, has_backend: bool) -> None:
+    def _log_ports(self, container) -> None:
         bindings = container.attrs.get('HostConfig', {}).get('PortBindings', {})
         frontend_binding = bindings.get('3000/tcp')
         if frontend_binding:
             print(f"  Frontend available at http://localhost:{frontend_binding[0]['HostPort']}")
-        if has_backend:
-            mongo_binding = bindings.get('27017/tcp')
-            if mongo_binding:
-                print(f"  MongoDB mapped to localhost:{mongo_binding[0]['HostPort']}")
 
     def copy_workspace_to_container(self):
         """
@@ -172,15 +164,17 @@ class DockerEnv:
             # Non-fatal? Maybe fatal if we need the code.
             raise
 
-    def exec_run(self, command: str, workdir: str = "/app"):
+    def exec_run(self, command: str, workdir: str = "/app", silent: bool = False):
         """
         Execute a command inside the container with enhanced logging.
+        :param silent: If True, suppress verbose logging (only log errors)
         """
         if not self.container:
             raise Exception("Container not running.")
         
-        print(f"[DockerEnv] Executing command: {command[:100]}..." if len(command) > 100 else f"[DockerEnv] Executing command: {command}")
-        print(f"[DockerEnv] Working directory: {workdir}")
+        if not silent:
+            print(f"[DockerEnv] Executing command: {command[:100]}..." if len(command) > 100 else f"[DockerEnv] Executing command: {command}")
+            print(f"[DockerEnv] Working directory: {workdir}")
         
         try:
             exit_code, output = self.container.exec_run(
@@ -199,15 +193,22 @@ class DockerEnv:
             except:
                 decoded_output = str(output)
             
-            # Log execution details
-            print(f"[DockerEnv] Command exit code: {exit_code}")
-            if exit_code != 0:
-                print(f"[DockerEnv] Command failed with exit code {exit_code}")
+            # Log execution details only if not silent
+            if not silent:
+                print(f"[DockerEnv] Command exit code: {exit_code}")
+                if exit_code != 0:
+                    print(f"[DockerEnv] Command failed with exit code {exit_code}")
+            elif exit_code != 0:
+                # Always log errors even in silent mode
+                print(f"⚠️  Command failed with exit code {exit_code}")
             
             return exit_code, decoded_output
             
         except Exception as e:
-            print(f"[DockerEnv] Exception during command execution: {type(e).__name__}: {e}")
+            if not silent:
+                print(f"[DockerEnv] Exception during command execution: {type(e).__name__}: {e}")
+            else:
+                print(f"⚠️  Execution error: {str(e)}")
             # Return error exit code and error message
             return 1, f"Execution error: {str(e)}"
 

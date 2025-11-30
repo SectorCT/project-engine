@@ -492,6 +492,33 @@ def _persist_generated_tickets(job: Job, tickets_data: List[Dict[str, Any]]) -> 
             if dep_ids:
                 ticket.dependencies.set(dep_ids)
 
+    # Cleanup: Delete epics with no stories
+    all_tickets = list(job.tickets.all())
+    epics = [t for t in all_tickets if t.type == Ticket.Type.EPIC]
+    stories = [t for t in all_tickets if t.type == Ticket.Type.STORY]
+    
+    # Build a map of epic IDs to story counts
+    epic_id_to_story_count = {}
+    for story in stories:
+        parent_id = story.parent_id
+        if parent_id:
+            parent_id_str = str(parent_id)
+            epic_id_to_story_count[parent_id_str] = epic_id_to_story_count.get(parent_id_str, 0) + 1
+    
+    # Find and delete epics with no stories
+    deleted_count = 0
+    for epic in epics:
+        epic_id_str = str(epic.id)
+        story_count = epic_id_to_story_count.get(epic_id_str, 0)
+        
+        if story_count == 0:
+            logger.debug('Deleting epic %s (%s) - no stories', epic.id, epic.title)
+            epic.delete()
+            deleted_count += 1
+    
+    if deleted_count > 0:
+        logger.info('Deleted %d epics with no stories for job %s', deleted_count, job.id)
+
     return created
 
 
