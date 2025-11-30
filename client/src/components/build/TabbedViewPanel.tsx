@@ -154,6 +154,7 @@ export const TabbedViewPanel = ({
               filePath={activeTab.filePath || ""}
               content={activeTab.content}
               jobId={jobId}
+              jobStatus={jobStatus}
             />
           </div>
         )}

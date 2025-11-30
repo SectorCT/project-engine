@@ -19,6 +19,7 @@ interface FileNode {
 
 interface ArchitecturePanelProps {
   jobId?: string;
+  jobStatus?: string;
   onFileClick?: (filePath: string, fileName: string) => void;
 }
 
@@ -150,7 +151,7 @@ const FileTreeItem = ({
   );
 };
 
-export const ArchitecturePanel = ({ jobId, onFileClick }: ArchitecturePanelProps) => {
+export const ArchitecturePanel = ({ jobId, jobStatus, onFileClick }: ArchitecturePanelProps) => {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,8 +159,11 @@ export const ArchitecturePanel = ({ jobId, onFileClick }: ArchitecturePanelProps
   const [isLoadingPackageJson, setIsLoadingPackageJson] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Only fetch files when the project has started building (status is 'building' or later)
+  const shouldFetchFiles = jobStatus && ['building', 'build_done', 'done', 'failed'].includes(jobStatus);
+
   const fetchFileStructure = useCallback(async () => {
-    if (!jobId) {
+    if (!jobId || !shouldFetchFiles) {
       setFileTree([]);
       return;
     }
@@ -183,10 +187,10 @@ export const ArchitecturePanel = ({ jobId, onFileClick }: ArchitecturePanelProps
     } finally {
       setIsLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, shouldFetchFiles]);
 
   const fetchPackageJson = useCallback(async () => {
-    if (!jobId) {
+    if (!jobId || !shouldFetchFiles) {
       setPackageJsonContent(null);
       return;
     }
@@ -207,29 +211,37 @@ export const ArchitecturePanel = ({ jobId, onFileClick }: ArchitecturePanelProps
     } finally {
       setIsLoadingPackageJson(false);
     }
-  }, [jobId]);
+  }, [jobId, shouldFetchFiles]);
 
   useEffect(() => {
-    // Fetch immediately on mount or when jobId changes
-    fetchFileStructure();
-    fetchPackageJson();
+    // Only fetch if project has started building
+    if (shouldFetchFiles) {
+      // Fetch immediately when building starts
+      fetchFileStructure();
+      fetchPackageJson();
 
-    // Set up polling every 5 seconds
-    if (jobId) {
-      intervalRef.current = setInterval(() => {
-        fetchFileStructure();
-        fetchPackageJson();
-      }, 5000);
+      // Set up polling every 5 seconds
+      if (jobId) {
+        intervalRef.current = setInterval(() => {
+          fetchFileStructure();
+          fetchPackageJson();
+        }, 5000);
+      }
+    } else {
+      // Clear data if project hasn't started building yet
+      setFileTree([]);
+      setPackageJsonContent(null);
+      setError(null);
     }
 
-    // Cleanup interval on unmount or when jobId changes
+    // Cleanup interval on unmount or when jobId/status changes
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, [jobId, fetchFileStructure, fetchPackageJson]);
+  }, [jobId, shouldFetchFiles, fetchFileStructure, fetchPackageJson]);
 
   return (
     <Card className="glass flex flex-col">

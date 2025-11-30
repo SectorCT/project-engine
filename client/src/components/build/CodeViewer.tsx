@@ -7,6 +7,7 @@ interface CodeViewerProps {
   filePath: string;
   content?: string;
   jobId?: string;
+  jobStatus?: string;
 }
 
 // Mock code content for different files
@@ -131,11 +132,14 @@ export function debounce<T extends (...args: any[]) => any>(
 }`,
 };
 
-export const CodeViewer = ({ filePath, content: initialContent, jobId }: CodeViewerProps) => {
+export const CodeViewer = ({ filePath, content: initialContent, jobId, jobStatus }: CodeViewerProps) => {
   const [content, setContent] = useState<string | null>(initialContent || null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileName = filePath.split("/").pop() || filePath;
+
+  // Only fetch files when the project has started building
+  const shouldFetchFiles = jobStatus && ['building', 'build_done', 'done', 'failed'].includes(jobStatus);
 
   useEffect(() => {
     // If content is already provided, use it
@@ -147,6 +151,12 @@ export const CodeViewer = ({ filePath, content: initialContent, jobId }: CodeVie
     // If no jobId, can't fetch
     if (!jobId || !filePath) {
       setContent(mockCodeContent[fileName] || `// No content available for ${fileName}`);
+      return;
+    }
+
+    // Only fetch if project has started building
+    if (!shouldFetchFiles) {
+      setContent(`// Files will be available once the project starts building.\n// Current status: ${jobStatus || 'unknown'}`);
       return;
     }
 
@@ -166,7 +176,7 @@ export const CodeViewer = ({ filePath, content: initialContent, jobId }: CodeVie
       .finally(() => {
         setIsLoading(false);
       });
-  }, [filePath, jobId, initialContent, fileName]);
+  }, [filePath, jobId, initialContent, fileName, shouldFetchFiles, jobStatus]);
 
   const codeContent = content || mockCodeContent[fileName] || `// No content available for ${fileName}`;
 
