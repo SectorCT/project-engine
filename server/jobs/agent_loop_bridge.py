@@ -85,6 +85,7 @@ def _coerce_description(payload: Dict[str, str]) -> str:
 def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dict] = None) -> List[Dict]:
     """
     Generate hierarchical tickets using the BA/Master/Frontend/Backend PM agents.
+    Matches the pattern from agentLoop/build.py.
     """
     has_backend: bool
     has_frontend: bool
@@ -97,31 +98,44 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
         structure_dict = ProjectInitializer.get_project_structure(has_backend, has_frontend)
         structure_summary = ProjectInitializer.get_structure_summary(structure_dict)
 
+    # Step 1: Master PM creates functional epics
     master_pm = MasterPMAgent()
     master_pm.project_structure = structure_summary
+    
+    logger.info("Master PM creating functional epics")
+    functional_epics = master_pm.generate_functional_epics(prd_markdown)
+    if not functional_epics:
+        logger.warning("No functional epics generated, falling back to legacy PM agent")
+        # Fallback to legacy PM agent to avoid returning no tickets.
+        pm_agent = PMAgent()
+        return pm_agent.generate_tickets(prd_markdown, project_structure=project_structure)
+
+    logger.info(f"Generated {len(functional_epics)} functional epics")
+
+    # Step 2: Initialize PM agents for frontend and backend
     frontend_pm = FrontendPMAgent()
     frontend_pm.project_structure = structure_summary
     backend_pm = BackendPMAgent()
     backend_pm.project_structure = structure_summary
-
-    functional_epics = master_pm.generate_functional_epics(prd_markdown)
-    if not functional_epics:
-        # Fallback to legacy PM agent to avoid returning no tickets.
-        pm_agent = PMAgent()
-        return pm_agent.generate_tickets(prd_markdown, project_structure=project_structure)
 
     tickets: List[Dict[str, object]] = []
 
     def next_id(prefix: str) -> str:
         return f'{prefix}-{uuid.uuid4()}'
 
+    # Step 3: Process each functional epic
     for functional_epic in functional_epics:
         func_id = str(functional_epic.get('id') or next_id('func'))
+        func_epic_title = functional_epic.get('title', 'Functional Epic')
+        
+        logger.info(f"Processing functional epic: {func_epic_title}")
+        
+        # Create functional epic ticket
         tickets.append(
             {
                 'id': func_id,
                 'type': 'epic',
-                'title': functional_epic.get('title', 'Functional Epic'),
+                'title': func_epic_title,
                 'description': _coerce_description(functional_epic),
                 'status': 'todo',
                 'assigned_to': functional_epic.get('assigned_to', 'Master PM') or 'Master PM',
@@ -131,7 +145,10 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
         )
 
         backend_epic_id: Optional[str] = None
+        
+        # Generate backend epic and stories
         if has_backend:
+            logger.info(f"  Backend PM creating epic and stories for: {func_epic_title}")
             backend_result = backend_pm.generate_backend_epic_and_stories(functional_epic, prd_markdown)
             backend_epic = backend_result.get('epic')
             if backend_epic:
@@ -148,6 +165,9 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
                         'dependencies': [],
                     }
                 )
+                logger.info(f"    Created BACKEND EPIC: {backend_epic.get('title')}")
+                
+                # Create backend stories
                 for story in backend_result.get('stories', []):
                     tickets.append(
                         {
@@ -161,12 +181,16 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
                             'dependencies': [],
                         }
                     )
+                logger.info(f"    Created {len(backend_result.get('stories', []))} backend stories")
 
+        # Generate frontend epic and stories
         if has_frontend:
+            logger.info(f"  Frontend PM creating epic and stories for: {func_epic_title}")
             frontend_result = frontend_pm.generate_frontend_epic_and_stories(functional_epic, prd_markdown)
             frontend_epic = frontend_result.get('epic')
             if frontend_epic:
                 frontend_epic_id = next_id('frontend')
+                # Frontend epic depends on backend epic if it exists
                 dependencies = [backend_epic_id] if backend_epic_id else []
                 tickets.append(
                     {
@@ -180,6 +204,9 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
                         'dependencies': dependencies,
                     }
                 )
+                logger.info(f"    Created FRONTEND EPIC: {frontend_epic.get('title')}")
+                
+                # Create frontend stories
                 for story in frontend_result.get('stories', []):
                     tickets.append(
                         {
@@ -193,7 +220,9 @@ def generate_tickets_from_prd(prd_markdown: str, project_structure: Optional[Dic
                             'dependencies': [],
                         }
                     )
+                logger.info(f"    Created {len(frontend_result.get('stories', []))} frontend stories")
 
+    logger.info(f"Generated {len(tickets)} total tickets")
     return tickets
 
 

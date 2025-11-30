@@ -120,23 +120,36 @@ export function TicketsPanel({ tickets }: TicketsPanelProps) {
     (ticket) => !ticket.parent_id || ticket.parent_id === ticket.id
   );
 
-  // Helper to normalize status
-  const normalizeStatus = (status: string): "todo" | "in-progress" | "done" => {
-    const s = status.toLowerCase();
-    if (s === "in-progress" || s === "in_progress" || s === "working") {
+  // Helper to normalize status - handle various status formats and edge cases
+  const normalizeStatus = (status: string | null | undefined): "todo" | "in-progress" | "done" => {
+    if (!status) return "todo";
+    const s = status.toLowerCase().trim();
+    // Handle in_progress variations
+    if (s === "in-progress" || s === "in_progress" || s === "working" || s === "in progress") {
       return "in-progress";
     }
+    // Handle done variations
     if (s === "done" || s === "completed" || s === "finished") {
       return "done";
     }
+    // Default to todo for any other status (including empty string, "pending", etc.)
     return "todo";
   };
 
-  // Group root tickets by status
+  // Group root tickets by status - ensure in_progress tickets go to in-progress column
   const ticketsByStatus = {
-    todo: rootTickets.filter((t) => normalizeStatus(t.status) === "todo"),
-    "in-progress": rootTickets.filter((t) => normalizeStatus(t.status) === "in-progress"),
-    done: rootTickets.filter((t) => normalizeStatus(t.status) === "done"),
+    todo: rootTickets.filter((t) => {
+      const normalized = normalizeStatus(t.status);
+      return normalized === "todo";
+    }),
+    "in-progress": rootTickets.filter((t) => {
+      const normalized = normalizeStatus(t.status);
+      return normalized === "in-progress";
+    }),
+    done: rootTickets.filter((t) => {
+      const normalized = normalizeStatus(t.status);
+      return normalized === "done";
+    }),
   };
 
   // Component to render a ticket with its children

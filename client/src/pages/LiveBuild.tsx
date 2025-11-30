@@ -148,6 +148,43 @@ export default function LiveBuild() {
       return existing;
     }
     
+    // For user messages: check if we already have an optimistic message (temp-user-*) 
+    // that matches the incoming message (which will have a real ID or temp-* from WebSocket)
+    if (newMsg.role === 'user') {
+      const isDuplicateUserMsg = existing.some(msg => {
+        // Match by content and role, and timestamp within 5 seconds
+        // This catches the optimistic update vs the WebSocket echo
+        const timeDiff = Math.abs(
+          new Date(msg.created_at).getTime() - new Date(newMsg.created_at).getTime()
+        );
+        return (
+          msg.content === newMsg.content &&
+          msg.role === 'user' &&
+          timeDiff < 5000 // 5 second window for user messages
+        );
+      });
+      
+      if (isDuplicateUserMsg) {
+        // Replace the optimistic message with the one from server (has better ID/timestamp)
+        return existing.map(msg => {
+          const timeDiff = Math.abs(
+            new Date(msg.created_at).getTime() - new Date(newMsg.created_at).getTime()
+          );
+          if (
+            msg.content === newMsg.content &&
+            msg.role === 'user' &&
+            timeDiff < 5000 &&
+            String(msg.id).startsWith('temp-user-')
+          ) {
+            return newMsg; // Replace optimistic with server version
+          }
+          return msg;
+        }).sort((a, b) => 
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+      }
+    }
+    
     // Check for duplicates by content, sender, and timestamp (within 2 seconds)
     const isDuplicate = existing.some(msg => {
       const timeDiff = Math.abs(
@@ -265,12 +302,39 @@ export default function LiveBuild() {
             },
             created_at: message.timestamp || new Date().toISOString(),
           };
+          
+          // Check for Docker container initialization messages
+          const content = message.content.toLowerCase();
+          const stage = message.metadata?.stage || '';
+          const sender = message.sender || '';
+          
+          // Detect Docker container initialization
+          if ((stage === 'Environment' || sender === 'Builder') && (
+            content.includes('starting docker container') ||
+            content.includes('docker container') ||
+            content.includes('initializing docker') ||
+            content.includes('building docker image')
+          )) {
+            // Check if we already added a Docker initialization message
+            const hasDockerMsg = messages.some(
+              (msg) => msg.metadata?.type === 'docker_initialized'
+            );
+            if (!hasDockerMsg) {
+              addSystemMessage('🐳 Docker container initialized and ready for build!', {
+                type: 'docker_initialized',
+                stage: stage,
+              });
+            }
+          }
+          
           setMessages((prev) => mergeMessages(prev, newMessage));
         }
         break;
       case 'jobStatus':
         // Job status update (queued, running, done, failed)
         if (message.status) {
+          const status = message.status;
+          
           // Add informative message about status change
           const statusMessages: Record<string, string> = {
             collecting: '📝 Collecting requirements from you...',
@@ -278,13 +342,34 @@ export default function LiveBuild() {
             planning: '🤔 Executive team is planning the project architecture',
             prd_ready: '📋 Product Requirements Document is ready',
             ticketing: '🎫 Creating tickets and breaking down the work',
-            tickets_ready: '✅ Tickets are ready! Starting build process',
-            building: '🔨 Building your application - tickets are being executed',
-            build_done: '🎉 Build completed successfully!',
+            tickets_ready: '📋 Tickets have been created and are ready for execution!',
+            building: '🔨 Build phase started! Initializing Docker environment...',
+            build_done: '🎉 Build completed successfully! All tickets have been executed.',
             failed: '❌ Build failed - check error details',
           };
-          const statusMsg = statusMessages[message.status] || `Status changed to: ${message.status}`;
-          addSystemMessage(statusMsg, { stage: message.status });
+          const statusMsg = statusMessages[status] || `Status changed to: ${status}`;
+          addSystemMessage(statusMsg, { stage: status });
+          
+          // Special handling for tickets_ready - open tickets tab and load tickets
+          if (status === 'tickets_ready') {
+            // Open tickets tab automatically
+            setActiveTabId('tickets');
+            
+            // Load tickets
+            if (id) {
+              api.getTickets(id)
+                .then((tickets) => {
+                  setTickets(tickets);
+                  if (tickets.length > 0) {
+                    addSystemMessage(`📦 ${tickets.length} ticket(s) loaded and ready to build.`, {
+                      type: 'tickets_loaded',
+                      ticketCount: tickets.length,
+                    });
+                  }
+                })
+                .catch((err) => console.error('Failed to load tickets:', err));
+            }
+          }
           
           // Refetch to get full updated job data
           refetch();
@@ -315,7 +400,7 @@ export default function LiveBuild() {
         }
         break;
       case 'prdReady':
-        // Final app artifact is ready
+        // PRD/spec is ready (but project is NOT done yet - tickets still need to be built)
         if (message.spec) {
           addSystemMessage('📄 Product Requirements Document finalized and ready for review', { stage: 'prd_ready' });
           setAppSpec(message.spec);
@@ -335,7 +420,103 @@ export default function LiveBuild() {
           });
           // Refetch to get the full app data including prdMarkdown
           refetch();
-          toast.success('Project completed!');
+          // Show info message, not completion - tickets still need to be built
+          toast.info('PRD ready! Tickets will be generated next.');
+        }
+        break;
+      case 'ticketUpdate':
+        // Ticket status update (created, in_progress, done, failed)
+        if (message.ticketId && message.title) {
+          const ticketStatus = message.status || 'unknown';
+          const ticketTitle = message.title;
+          const assignedTo = message.assignedTo || 'Builder';
+          const ticketType = message.type || 'story';
+          const event = message.metadata?.event;
+          
+          // Create a chat message for the ticket update
+          const uniqueId = `ticket-${message.ticketId}-${Date.now()}`;
+          let statusMessage = '';
+          
+          // Check if this is a ticket creation event
+          if (event === 'created') {
+            statusMessage = `📝 Created ticket: "${ticketTitle}"`;
+          } else if (ticketStatus === 'in_progress') {
+            statusMessage = `🔄 Started working on ticket: "${ticketTitle}"`;
+          } else if (ticketStatus === 'done') {
+            statusMessage = `✅ Completed ticket: "${ticketTitle}"`;
+          } else if (ticketStatus === 'failed') {
+            statusMessage = `❌ Failed ticket: "${ticketTitle}"`;
+          } else {
+            statusMessage = `📋 Ticket "${ticketTitle}" status: ${ticketStatus}`;
+          }
+          
+          const ticketMessage: JobMessage = {
+            id: uniqueId,
+            role: 'system',
+            sender: assignedTo,
+            content: statusMessage,
+            metadata: {
+              ticketId: message.ticketId,
+              ticketTitle: ticketTitle,
+              ticketStatus: ticketStatus,
+              ticketType: ticketType,
+              event: event,
+              ...message.metadata,
+            },
+            created_at: message.timestamp || new Date().toISOString(),
+          };
+          
+          setMessages((prev) => {
+            // Avoid duplicates by checking ticket ID and status/event
+            const exists = prev.some(
+              (msg) => msg.metadata?.ticketId === message.ticketId && 
+                       (msg.metadata?.ticketStatus === ticketStatus || 
+                        (event === 'created' && msg.metadata?.event === 'created'))
+            );
+            if (exists) return prev;
+            return [...prev, ticketMessage];
+          });
+          
+          // Refetch tickets to update the tickets panel
+          if (id) {
+            api.getTickets(id)
+              .then((tickets) => {
+                setTickets(tickets);
+                // Auto-open tickets tab if it's not already open and we have tickets
+                if (tickets.length > 0 && activeTabId !== 'tickets') {
+                  // Only auto-open on first ticket update, not every update
+                  const hasTicketMessages = messages.some(
+                    (msg) => msg.metadata?.type === 'tickets_ready'
+                  );
+                  if (!hasTicketMessages) {
+                    setActiveTabId('tickets');
+                  }
+                }
+              })
+              .catch((err) => console.error('Failed to refresh tickets:', err));
+          }
+        }
+        break;
+      case 'ticketReset':
+        // Backlog snapshot is being regenerated - refetch tickets
+        if (id) {
+          addSystemMessage('📋 Ticket backlog is being regenerated...', {
+            type: 'ticket_reset',
+          });
+          
+          api.getTickets(id)
+            .then((tickets) => {
+              setTickets(tickets);
+              // Auto-open tickets tab when tickets are reset/regenerated
+              if (tickets.length > 0) {
+                setActiveTabId('tickets');
+                addSystemMessage(`📦 ${tickets.length} ticket(s) loaded.`, {
+                  type: 'tickets_loaded',
+                  ticketCount: tickets.length,
+                });
+              }
+            })
+            .catch((err) => console.error('Failed to refresh tickets after reset:', err));
         }
         break;
       case 'ticketUpdate':

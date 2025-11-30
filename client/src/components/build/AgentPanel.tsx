@@ -15,6 +15,7 @@ interface AgentMessage {
   agentName: string;
   content: string;
   timestamp: string;
+  created_at: string; // Raw date string for sorting
   isDecision?: boolean;
   category?: "planning" | "development" | "testing";
   role?: "user" | "agent" | "system";
@@ -105,6 +106,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
   };
 
   // Combine messages and steps into a unified list
+  // IMPORTANT: Sort by created_at (raw date) BEFORE formatting timestamp for display
   const allMessages: AgentMessage[] = [
     ...messages.map((msg) => ({
       id: `msg-${msg.id}`, // Prefix with 'msg-' to ensure uniqueness
@@ -112,8 +114,9 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
       agentName: msg.sender || (msg.role === "user" ? "You" : "Agent"),
       content: msg.content,
       timestamp: formatTimestamp(msg.created_at),
+      created_at: msg.created_at, // Keep raw date for sorting
       role: msg.role,
-      category: msg.metadata?.stage === "requirements" ? "planning" : undefined,
+      category: (msg.metadata?.stage === "requirements" ? "planning" : undefined) as "planning" | "development" | "testing" | undefined,
     })),
     ...steps.map((step) => ({
       id: `step-${step.id}`, // Prefix with 'step-' to ensure uniqueness
@@ -121,9 +124,10 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
       agentName: step.agent_name,
       content: step.message,
       timestamp: formatTimestamp(step.created_at),
+      created_at: step.created_at, // Keep raw date for sorting
       category: "development" as const,
     })),
-  ].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   const filteredMessages = allMessages.filter((msg) => {
     const matchesFilter =
