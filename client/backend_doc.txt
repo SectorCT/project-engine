@@ -5,6 +5,12 @@ Register: POST /api/auth/register/
 Login: POST /api/auth/login/
 Use the access token in Authorization: Bearer <token> for every HTTP request.
 For WebSockets, send the same header if your client supports it. While ALLOW_WS_TOKEN_QUERY=true (dev mode), you can also append ?token=<access_token> to the WS URL for testing.
+1.1 Frontend Environment Config
+- VITE_API_BASE_URL: REST host base (defaults to http://localhost:8000 in dev).
+- VITE_WS_BASE_URL: Optional override for WebSocket host/protocol; falls back to WS derived from API URL.
+- VITE_ALLOW_WS_TOKEN_QUERY: 'true' (default) to allow ?token usage in dev; set to 'false' in prod so cookies/headers handle auth.
+- VITE_USE_SECURE_COOKIES / other auth flags follow backend settings; keep envs in sync across frontend + server.
+
 2. Job Lifecycle Overview
 User submits an “idea” via POST /api/jobs/ – this stores a job in status `collecting` and immediately triggers the first Client Relations agent reply.
 The frontend connects to the job’s WebSocket channel and renders the chat + subsequent statuses in real time.

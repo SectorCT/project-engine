@@ -32,7 +32,15 @@ const WS_BASE_URL = getWebSocketUrl();
 const ALLOW_WS_TOKEN_QUERY = import.meta.env.VITE_ALLOW_WS_TOKEN_QUERY !== 'false';
 
 export interface WebSocketMessage {
-  kind: 'jobStatus' | 'agentDialogue' | 'stageUpdate' | 'prdReady' | 'error';
+  kind:
+    | 'jobStatus'
+    | 'agentDialogue'
+    | 'stageUpdate'
+    | 'prdReady'
+    | 'ticketUpdate'
+    | 'ticketReset'
+    | 'control'
+    | 'error';
   jobId?: string;
   role?: 'user' | 'agent' | 'system';
   sender?: string;
@@ -45,6 +53,10 @@ export interface WebSocketMessage {
   spec?: Record<string, any>;
   prdMarkdown?: string;
   timestamp?: string;
+  ticketId?: string;
+  title?: string;
+  type?: string;
+  assignedTo?: string;
 }
 
 export interface UseWebSocketOptions {
@@ -77,8 +89,10 @@ export function useWebSocket({
     const token = api.getToken();
     if (!token) {
       console.error('No authentication token available for WebSocket connection');
-      onError?.(new Event('no_token'));
-      return;
+      if (ALLOW_WS_TOKEN_QUERY) {
+        onError?.(new Event('no_token'));
+        return;
+      }
     }
 
     // Build WebSocket URL
@@ -86,7 +100,9 @@ export function useWebSocket({
     
     // Always add token to query string (browsers can't set custom headers for WebSocket)
     // The server middleware will check for query token if ALLOW_WS_TOKEN_QUERY is enabled
+    if (ALLOW_WS_TOKEN_QUERY && token) {
       wsUrl += `?token=${encodeURIComponent(token)}`;
+    }
 
     // Clean up any existing connection
     if (wsRef.current) {
@@ -97,7 +113,8 @@ export function useWebSocket({
     try {
       // Only log in development to reduce console noise
       if (import.meta.env.DEV) {
-        console.log('Connecting to WebSocket:', wsUrl.replace(token, '***'));
+        const redactedUrl = token ? wsUrl.replace(token, '***') : wsUrl;
+        console.log('Connecting to WebSocket:', redactedUrl);
       }
       const ws = new WebSocket(wsUrl);
 

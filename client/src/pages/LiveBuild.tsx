@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AgentPanel } from "@/components/build/AgentPanel";
 import { TabbedViewPanel } from "@/components/build/TabbedViewPanel";
 import { ArchitecturePanel } from "@/components/build/ArchitecturePanel";
 import { StatusPanel } from "@/components/build/StatusPanel";
+import { TicketPanel, TicketEvent } from "@/components/build/TicketPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,9 +23,9 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, JobMessage, JobStep } from "@/lib/api";
+import { api, Job, JobMessage, JobStep, Ticket } from "@/lib/api";
 import { useWebSocket, WebSocketMessage } from "@/hooks/useWebSocket";
-import { mapServerStatusToClient, formatTimeAgo, ClientJobStatus } from "@/lib/jobUtils";
+import { mapServerStatusToClient, formatTimeAgo } from "@/lib/jobUtils";
 import { toast } from "sonner";
 
 interface Tab {
@@ -54,10 +55,29 @@ export default function LiveBuild() {
   const [activeTabId, setActiveTabId] = useState<string>("preview");
   const [messages, setMessages] = useState<JobMessage[]>([]);
   const [steps, setSteps] = useState<JobStep[]>([]);
+  const [tickets, setTickets] = useState<TicketEvent[]>([]);
   const [appSpec, setAppSpec] = useState<any>(null);
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editPrompt, setEditPrompt] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const queryClient = useQueryClient();
+
+  const ticketSnapshotToEvent = useCallback((record: Ticket): TicketEvent => ({
+    ticketId: record.id,
+    title: record.title,
+    status: record.status,
+    type: record.type,
+    assignedTo: record.assigned_to || undefined,
+    timestamp: record.updated_at,
+    message: record.description,
+  }), []);
+
+  const loadTicketsSnapshot = useCallback(() => {
+    if (!id) return;
+    api.listTickets(id)
+      .then((records) => setTickets(records.map(ticketSnapshotToEvent)))
+      .catch((err) => console.error('Failed to load tickets:', err));
+  }, [id, ticketSnapshotToEvent]);
 
   // Fetch job data
   const { data: job, isLoading, error, refetch } = useQuery({
@@ -66,11 +86,12 @@ export default function LiveBuild() {
     enabled: !!id,
   });
 
-  // Fetch app data when job is done
+  const isAppReady = job?.status === 'done' || job?.status === 'build_done';
+  // Fetch app data when job is done/build_done
   const { data: app } = useQuery({
     queryKey: ['app', id],
     queryFn: () => api.getAppByJob(id!),
-    enabled: !!id && job?.status === 'done',
+    enabled: !!id && isAppReady,
   });
 
   // Update app spec when app data changes
@@ -101,8 +122,21 @@ export default function LiveBuild() {
     onMessage: (message: WebSocketMessage) => {
       handleWebSocketMessage(message);
     },
-    onError: (error) => {
-      console.error('WebSocket error:', error);
+    onError: (event) => {
+      if (event.type === 'no_token') {
+        toast.error('Missing WebSocket token. Please log in again.');
+        return;
+      }
+
+      if (typeof CloseEvent !== "undefined" && event instanceof CloseEvent) {
+        if ([4001, 4003, 1008].includes(event.code)) {
+          toast.error('WebSocket authentication failed. Refresh and sign in again.');
+          return;
+        }
+      }
+
+      toast.warning('WebSocket connection interrupted. Retrying…');
+      console.error('WebSocket error:', event);
     },
   });
 
@@ -126,6 +160,13 @@ export default function LiveBuild() {
       }
     }
   }, [job]);
+
+  useEffect(() => {
+    if (!job) return;
+    if (['tickets_ready', 'building', 'build_done', 'done'].includes(job.status)) {
+      loadTicketsSnapshot();
+    }
+  }, [job, loadTicketsSnapshot]);
 
   const handleWebSocketMessage = (message: WebSocketMessage) => {
     switch (message.kind) {
@@ -155,15 +196,14 @@ export default function LiveBuild() {
         }
         break;
       case 'jobStatus':
-        // Job status update (queued, running, done, failed)
-        if (message.status) {
-          // Update local job status immediately
-          if (job) {
-            // Update the job object in place
-            const updatedJob = { ...job, status: message.status as any };
-            // Refetch to get full updated job data
-        refetch();
+        if (message.status && id) {
+          queryClient.setQueryData<Job | undefined>(['job', id], (prev) =>
+            prev ? { ...prev, status: message.status as Job['status'], error_message: message.message || prev.error_message } : prev
+          );
+          if (message.status === 'failed' && message.message) {
+            toast.error(message.message);
           }
+          refetch();
         }
         break;
       case 'agentDialogue':
@@ -211,6 +251,38 @@ export default function LiveBuild() {
           // Refetch to get the full app data including prdMarkdown
           refetch();
           toast.success('Project completed!');
+        }
+        break;
+      case 'ticketUpdate':
+        if (message.ticketId) {
+          setTickets((prev) => {
+            const next = prev.filter((t) => t.ticketId !== message.ticketId);
+            const ticketEvent: TicketEvent = {
+              ticketId: message.ticketId!,
+              title: message.title,
+              status: message.status,
+              type: message.type,
+              assignedTo: message.assignedTo,
+              timestamp: message.timestamp,
+              message: message.message,
+            };
+            return [...next, ticketEvent];
+          });
+        }
+        break;
+      case 'ticketReset':
+        setTickets([]);
+        toast('Ticket backlog refreshing…');
+        loadTicketsSnapshot();
+        break;
+      case 'control':
+        if (message.message) {
+          const level = message.metadata?.level || 'info';
+          if (level === 'error') {
+            toast.error(message.message);
+          } else {
+            toast(message.message);
+          }
         }
         break;
       case 'error':
@@ -338,16 +410,16 @@ export default function LiveBuild() {
   const projectName = job.initial_prompt.substring(0, 50) + (job.initial_prompt.length > 50 ? '...' : '');
   const status = mapServerStatusToClient(job.status);
   const timeElapsed = formatTimeAgo(job.created_at);
-  const canSendMessages = job.status === 'collecting';
+  const canSendMessages = job.status !== 'failed' && job.status !== 'done' && job.status !== 'build_done';
   const canEditPrompt = job.status === 'collecting';
 
   const statusColors = {
     planning: "bg-status-planning/10 text-status-planning border-status-planning/20",
+    ticketing: "bg-status-testing/10 text-status-testing border-status-testing/20",
     building: "bg-status-building/10 text-status-building border-status-building/20",
-    testing: "bg-status-testing/10 text-status-testing border-status-testing/20",
     complete: "bg-status-complete/10 text-status-complete border-status-complete/20",
     failed: "bg-status-failed/10 text-status-failed border-status-failed/20",
-  };
+  } as const;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -443,13 +515,18 @@ export default function LiveBuild() {
             />
           </motion.div>
 
-          {/* Bottom Row: Status & Metrics (left) and Agent Communication (right) */}
+          {/* Bottom Row: Status & Tickets (left) and Agent Communication (right) */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="col-span-12 md:col-span-4 hidden md:block flex h-[550px]"
+            className="col-span-12 md:col-span-4 hidden md:flex flex-col gap-2 h-[550px]"
           >
-            <StatusPanel job={job} steps={steps} />
+            <div className="flex-1 min-h-0">
+              <StatusPanel job={job} steps={steps} />
+            </div>
+            <div className="flex-1 min-h-0">
+              <TicketPanel tickets={tickets} />
+            </div>
           </motion.div>
 
           <motion.div
@@ -476,6 +553,10 @@ export default function LiveBuild() {
           {/* Mobile: Show Architecture */}
           <div className="col-span-12 md:hidden">
             <ArchitecturePanel />
+          </div>
+          <div className="col-span-12 md:hidden space-y-2">
+            <StatusPanel job={job} steps={steps} />
+            <TicketPanel tickets={tickets} />
           </div>
         </div>
       </div>

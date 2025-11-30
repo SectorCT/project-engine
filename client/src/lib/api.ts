@@ -31,7 +31,18 @@ export interface Job {
   initial_prompt: string;
   prompt: string;
   requirements_summary: string;
-  status: 'collecting' | 'queued' | 'running' | 'done' | 'failed';
+  status:
+    | 'collecting'
+    | 'queued'
+    | 'planning'
+    | 'prd_ready'
+    | 'ticketing'
+    | 'tickets_ready'
+    | 'building'
+    | 'build_done'
+    | 'running'
+    | 'done'
+    | 'failed';
   error_message: string;
   created_at: string;
   updated_at: string;
@@ -60,6 +71,20 @@ export interface App {
   id: string;
   job_id: string;
   spec: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Ticket {
+  id: string;
+  job_id: string;
+  parent_id: string | null;
+  type: string;
+  title: string;
+  description: string;
+  status: string;
+  assigned_to: string | null;
+  dependencies: string[];
   created_at: string;
   updated_at: string;
 }
@@ -301,6 +326,12 @@ class ApiClient {
       }
       throw error;
     }
+  }
+
+  // Tickets
+  async listTickets(jobId?: string): Promise<Ticket[]> {
+    const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
+    return this.request<Ticket[]>(`/api/tickets/${query}`);
   }
 }
 
