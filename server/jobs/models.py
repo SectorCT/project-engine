@@ -34,6 +34,7 @@ class Job(models.Model):
     )
     error_message = models.TextField(blank=True, default='')
     conversation_state = models.JSONField(default=dict, blank=True)
+    is_paused = models.BooleanField(default=False, help_text='When True, job execution is paused and tasks will exit gracefully.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

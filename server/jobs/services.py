@@ -613,6 +613,92 @@ def clear_continuation_flag(job_id: str) -> None:
         job.save(update_fields=['conversation_state', 'updated_at'])
 
 
+def pause_job(job_id: str) -> Job:
+    """
+    Pause a running job. Tasks will check this flag and exit gracefully.
+    Returns the updated job.
+    """
+    with transaction.atomic():
+        job = Job.objects.select_for_update().get(id=job_id)
+        if job.is_paused:
+            return job  # Already paused
+        job.is_paused = True
+        job.save(update_fields=['is_paused', 'updated_at'])
+    
+    broadcast_job_event(
+        str(job.id),
+        {
+            'kind': 'jobStatus',
+            'jobId': str(job.id),
+            'status': job.status,
+            'message': 'Job paused',
+            'metadata': {'paused': True},
+            'timestamp': timezone.now().isoformat(),
+        },
+    )
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Paused',
+        message='Job execution has been paused. Resume to continue.',
+    )
+    return job
+
+
+def resume_job(job_id: str) -> Job:
+    """
+    Resume a paused job. Re-queues the appropriate task based on current status.
+    Returns the updated job.
+    """
+    from .tasks import continue_job_task, run_job_task, run_ticket_builder_task
+    
+    with transaction.atomic():
+        job = Job.objects.select_for_update().get(id=job_id)
+        if not job.is_paused:
+            return job  # Not paused
+        job.is_paused = False
+        job.save(update_fields=['is_paused', 'updated_at'])
+    
+    broadcast_job_event(
+        str(job.id),
+        {
+            'kind': 'jobStatus',
+            'jobId': str(job.id),
+            'status': job.status,
+            'message': 'Job resumed',
+            'metadata': {'paused': False},
+            'timestamp': timezone.now().isoformat(),
+        },
+    )
+    record_description(
+        job,
+        agent='Coordinator',
+        stage='Resumed',
+        message='Job execution has been resumed. Continuing from current phase.',
+    )
+    
+    # Re-queue the appropriate task based on current status
+    if job.status == Job.Status.QUEUED:
+        run_job_task.delay(str(job.id))
+    elif job.status == Job.Status.TICKETS_READY:
+        run_ticket_builder_task.delay(str(job.id))
+    elif job.status == Job.Status.BUILDING:
+        run_ticket_builder_task.delay(str(job.id))
+    # For COLLECTING, PLANNING, TICKETING, the tasks will naturally continue
+    # when the current operation completes and checks the pause flag
+    
+    return job
+
+
+def check_job_paused(job_id: str) -> bool:
+    """Check if a job is currently paused."""
+    try:
+        job = Job.objects.get(id=job_id)
+        return job.is_paused
+    except Job.DoesNotExist:
+        return False
+
+
 @dataclass
 class JobCallbacks:
     """Adapter passed to the orchestrator to mutate state safely."""
@@ -661,6 +747,14 @@ class TicketBuildCallbacks:
         if self._job is None:
             self._job = Job.objects.get(id=self.job_id)
         return self._job
+
+    def is_paused(self) -> bool:
+        """Check if the job is currently paused. Can be called between ticket executions."""
+        try:
+            job = Job.objects.get(id=self.job_id)
+            return job.is_paused
+        except Job.DoesNotExist:
+            return False
 
     def on_stage(self, stage: str, message: str) -> None:
         job = self._get_job()

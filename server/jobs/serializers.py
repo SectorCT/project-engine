@@ -43,6 +43,7 @@ class JobSerializer(serializers.ModelSerializer):
             'requirements_summary',
             'status',
             'error_message',
+            'is_paused',
             'created_at',
             'updated_at',
         )
@@ -53,6 +54,7 @@ class JobSerializer(serializers.ModelSerializer):
             'requirements_summary',
             'status',
             'error_message',
+            'is_paused',
             'created_at',
             'updated_at',
         )

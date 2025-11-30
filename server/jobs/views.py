@@ -34,8 +34,10 @@ from .services import (
     finalize_requirements,
     initialize_requirements_collection,
     mark_continuation_enqueued,
+    pause_job,
     record_chat_message,
     record_description,
+    resume_job,
 )
 from .tasks import continue_job_task, run_job_task
 
@@ -215,6 +217,48 @@ class JobViewSet(
 
         continue_job_task.delay(str(job.id), serializer.validated_data['requirements'])
         return Response({'detail': 'Continuation queued.'}, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=('post',), url_path='pause')
+    def pause_job_action(self, request, id=None):
+        """Pause a running job. Tasks will exit gracefully at the next pause check."""
+        job = self.get_object()
+        
+        # Can't pause if already paused, completed, or failed
+        if job.is_paused:
+            return Response({'detail': 'Job is already paused.'}, status=status.HTTP_400_BAD_REQUEST)
+        if job.status in {Job.Status.BUILD_DONE, Job.Status.FAILED}:
+            return Response(
+                {'detail': 'Cannot pause a job that is already completed or failed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        paused_job = pause_job(str(job.id))
+        return Response(
+            {
+                'detail': 'Job paused successfully.',
+                'is_paused': paused_job.is_paused,
+                'status': paused_job.status,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=('post',), url_path='resume')
+    def resume_job_action(self, request, id=None):
+        """Resume a paused job. Re-queues the appropriate task based on current status."""
+        job = self.get_object()
+        
+        if not job.is_paused:
+            return Response({'detail': 'Job is not paused.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        resumed_job = resume_job(str(job.id))
+        return Response(
+            {
+                'detail': 'Job resumed successfully. Execution will continue from current phase.',
+                'is_paused': resumed_job.is_paused,
+                'status': resumed_job.status,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class AppViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = (IsAuthenticated,)
