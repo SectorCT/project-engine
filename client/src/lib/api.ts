@@ -64,6 +64,20 @@ export interface App {
   updated_at: string;
 }
 
+export interface Ticket {
+  id: string;
+  job_id: string;
+  parent_id: string | null;
+  type: 'epic' | 'story' | 'task';
+  title: string;
+  description: string;
+  status: string;
+  assigned_to: string;
+  dependencies: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
@@ -301,6 +315,11 @@ class ApiClient {
       }
       throw error;
     }
+  }
+
+  // Tickets
+  async getTickets(jobId: string): Promise<Ticket[]> {
+    return this.request<Ticket[]>(`/api/tickets/?job_id=${jobId}`);
   }
 }
 

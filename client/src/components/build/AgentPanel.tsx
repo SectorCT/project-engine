@@ -82,9 +82,21 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
 
     setDeletingMessageId(messageId);
     try {
-      await api.deleteJobMessage(messageId);
-      toast.success("Message deleted successfully");
-      onMessageDeleted?.();
+      // Strip the prefix to get the original ID
+      const originalId = messageId.startsWith('msg-') 
+        ? messageId.replace('msg-', '') 
+        : messageId.startsWith('step-')
+        ? messageId.replace('step-', '')
+        : messageId;
+      
+      // Only delete if it's a message (steps might not have delete API)
+      if (messageId.startsWith('msg-')) {
+        await api.deleteJobMessage(originalId);
+        toast.success("Message deleted successfully");
+        onMessageDeleted?.();
+      } else {
+        toast.error("Cannot delete step messages");
+      }
     } catch (error: any) {
       toast.error(error?.detail || "Failed to delete message");
     } finally {
@@ -95,7 +107,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
   // Combine messages and steps into a unified list
   const allMessages: AgentMessage[] = [
     ...messages.map((msg) => ({
-      id: msg.id,
+      id: `msg-${msg.id}`, // Prefix with 'msg-' to ensure uniqueness
       agentRole: msg.role === "user" ? "user" : mapAgentNameToRole(msg.sender),
       agentName: msg.sender || (msg.role === "user" ? "You" : "Agent"),
       content: msg.content,
@@ -104,7 +116,7 @@ export const AgentPanel = ({ messages = [], steps = [], onSendMessage, canSendMe
       category: msg.metadata?.stage === "requirements" ? "planning" : undefined,
     })),
     ...steps.map((step) => ({
-      id: step.id,
+      id: `step-${step.id}`, // Prefix with 'step-' to ensure uniqueness
       agentRole: mapAgentNameToRole(step.agent_name),
       agentName: step.agent_name,
       content: step.message,
