@@ -308,12 +308,8 @@ export default function CreateProject() {
                   className="bg-gradient-primary text-primary-foreground font-medium shadow-md hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed px-6"
                   disabled={isSubmitting || !formData.agreedToTerms}
                 >
-                  <img 
-                    src="/logo.png" 
-                    alt="" 
-                    className="w-4 h-4 mr-2"
-                  />
                   {isSubmitting ? "Creating..." : "Start Building"}
+                  <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               )}
             </div>
