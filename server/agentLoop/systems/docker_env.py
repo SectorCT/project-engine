@@ -6,7 +6,7 @@ import tarfile
 import time
 from typing import Optional
 
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 
 def get_port_for_project(project_id: str, port_base: int = 30000, port_range: int = 19000) -> int:

@@ -9,7 +9,7 @@ from agents.coder_agent import CoderAgent
 from systems.ticket_system import TicketSystem
 from systems.docker_env import DockerEnv
 from systems.project_initializer import ProjectInitializer
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 
 class BuildCallbackAdapter:

@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional
 from openai import OpenAI
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 class BaseAgent:
     def __init__(self, name: str, role: str, system_prompt: str):

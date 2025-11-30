@@ -3,7 +3,7 @@ from agents.ceo_agent import CEOAgent
 from agents.cto_agent import CTOAgent
 from agents.summary_agent import SummaryAgent
 from discussion.consensus import ConsensusManager
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 class Orchestrator:
     def __init__(self, initial_requirements: str):

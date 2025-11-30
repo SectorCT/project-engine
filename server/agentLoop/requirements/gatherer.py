@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from agents.client_relations_agent import ClientRelationsAgent
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 
 class RequirementsGatherer:

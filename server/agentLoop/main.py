@@ -3,7 +3,7 @@ from requirements.gatherer import RequirementsGatherer
 from discussion.orchestrator import Orchestrator
 from output.json_generator import JSONGenerator
 from output.prd_generator import PRDGenerator
-from config.settings import settings
+from agentLoop.config.settings import settings
 
 def main():
     print("==========================================")
