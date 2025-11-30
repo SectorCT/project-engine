@@ -4,10 +4,16 @@ import { Job } from './api';
 export type ClientJobStatus = 'planning' | 'building' | 'testing' | 'complete' | 'failed';
 
 export function mapServerStatusToClient(serverStatus: Job['status']): ClientJobStatus {
-  const statusMap: Record<Job['status'], ClientJobStatus> = {
+  const statusMap: Partial<Record<Job['status'], ClientJobStatus>> = {
     collecting: 'planning',
     queued: 'planning',
+    planning: 'planning',
+    prd_ready: 'planning',
+    ticketing: 'planning',
+    tickets_ready: 'planning',
+    building: 'building',
     running: 'building',
+    build_done: 'complete',
     done: 'complete',
     failed: 'failed',
   };

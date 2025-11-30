@@ -32,7 +32,7 @@ const WS_BASE_URL = getWebSocketUrl();
 const ALLOW_WS_TOKEN_QUERY = import.meta.env.VITE_ALLOW_WS_TOKEN_QUERY !== 'false';
 
 export interface WebSocketMessage {
-  kind: 'jobStatus' | 'agentDialogue' | 'stageUpdate' | 'prdReady' | 'error';
+  kind: 'jobStatus' | 'agentDialogue' | 'stageUpdate' | 'prdReady' | 'ticketUpdate' | 'ticketReset' | 'error';
   jobId?: string;
   role?: 'user' | 'agent' | 'system';
   sender?: string;
@@ -45,6 +45,11 @@ export interface WebSocketMessage {
   spec?: Record<string, any>;
   prdMarkdown?: string;
   timestamp?: string;
+  // Ticket update fields
+  ticketId?: string;
+  title?: string;
+  type?: 'epic' | 'story' | 'task';
+  assignedTo?: string;
 }
 
 export interface UseWebSocketOptions {

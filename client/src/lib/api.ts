@@ -31,7 +31,7 @@ export interface Job {
   initial_prompt: string;
   prompt: string;
   requirements_summary: string;
-  status: 'collecting' | 'queued' | 'running' | 'done' | 'failed';
+  status: 'collecting' | 'queued' | 'planning' | 'prd_ready' | 'ticketing' | 'tickets_ready' | 'building' | 'build_done' | 'done' | 'failed';
   error_message: string;
   created_at: string;
   updated_at: string;
@@ -320,6 +320,14 @@ class ApiClient {
   // Tickets
   async getTickets(jobId: string): Promise<Ticket[]> {
     return this.request<Ticket[]>(`/api/tickets/?job_id=${jobId}`);
+  }
+
+  // Continuation
+  async continueJob(jobId: string, requirements: string): Promise<{ detail: string }> {
+    return this.request<{ detail: string }>(`/api/jobs/${jobId}/continue/`, {
+      method: 'POST',
+      body: JSON.stringify({ requirements }),
+    });
   }
 }
 

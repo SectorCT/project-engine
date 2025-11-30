@@ -20,11 +20,12 @@ import {
   Settings,
   Edit,
   X,
+  PlusCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, JobMessage, JobStep, Ticket } from "@/lib/api";
 import { useWebSocket, WebSocketMessage } from "@/hooks/useWebSocket";
-import { mapServerStatusToClient, formatTimeAgo, ClientJobStatus } from "@/lib/jobUtils";
+import { mapServerStatusToClient, formatTimeAgo } from "@/lib/jobUtils";
 import { toast } from "sonner";
 
 interface Tab {
@@ -65,6 +66,9 @@ export default function LiveBuild() {
   const [isEditPromptOpen, setIsEditPromptOpen] = useState(false);
   const [editPrompt, setEditPrompt] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isContinuationOpen, setIsContinuationOpen] = useState(false);
+  const [continuationText, setContinuationText] = useState("");
+  const [isContinuing, setIsContinuing] = useState(false);
 
   // Fetch job data
   const { data: job, isLoading, error, refetch } = useQuery({
@@ -101,6 +105,69 @@ export default function LiveBuild() {
     }
   }, [app]);
 
+  // Helper function to load messages from REST API
+  const loadMessages = async (jobId: string) => {
+    try {
+      const msgs = await api.getJobMessages(jobId);
+      // Sort messages by created_at timestamp (oldest first)
+      const sorted = [...msgs].sort((a, b) => 
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      setMessages(sorted);
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+    }
+  };
+
+  // Helper function to add informative system messages
+  const addSystemMessage = (content: string, metadata: Record<string, any> = {}) => {
+    const uniqueId = `temp-system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const systemMessage: JobMessage = {
+      id: uniqueId,
+      role: 'system',
+      sender: 'System',
+      content,
+      metadata: {
+        ...metadata,
+        type: 'status_update',
+      },
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => mergeMessages(prev, systemMessage));
+  };
+
+  // Helper function to merge messages without duplicates
+  const mergeMessages = (existing: JobMessage[], newMsg: JobMessage): JobMessage[] => {
+    // Check for duplicates by ID first (most reliable)
+    // Convert to string for comparison to handle both string and number IDs
+    if (newMsg.id && existing.some(msg => String(msg.id) === String(newMsg.id))) {
+      return existing;
+    }
+    
+    // Check for duplicates by content, sender, and timestamp (within 2 seconds)
+    const isDuplicate = existing.some(msg => {
+      const timeDiff = Math.abs(
+        new Date(msg.created_at).getTime() - new Date(newMsg.created_at).getTime()
+      );
+      return (
+        msg.content === newMsg.content &&
+        msg.sender === newMsg.sender &&
+        msg.role === newMsg.role &&
+        timeDiff < 2000
+      );
+    });
+    
+    if (isDuplicate) {
+      return existing;
+    }
+    
+    // Add new message and sort by timestamp
+    const merged = [...existing, newMsg];
+    return merged.sort((a, b) => 
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+  };
+
   // Connect WebSocket
   const { isConnected, sendMessage } = useWebSocket({
     jobId: id || '',
@@ -111,14 +178,19 @@ export default function LiveBuild() {
     onError: (error) => {
       console.error('WebSocket error:', error);
     },
+    onOpen: () => {
+      // When WebSocket reconnects, refetch messages to ensure we have complete history
+      // This handles the case where messages were sent while disconnected
+      if (id) {
+        loadMessages(id);
+      }
+    },
   });
 
-  // Load initial messages
+  // Load initial messages on mount
   useEffect(() => {
     if (id) {
-      api.getJobMessages(id)
-        .then((msgs) => setMessages(msgs))
-        .catch((err) => console.error('Failed to load messages:', err));
+      loadMessages(id);
     }
   }, [id]);
 
@@ -131,12 +203,37 @@ export default function LiveBuild() {
     }
   }, [id]);
 
-  // Update messages and steps when job data changes
+  // Update messages and steps when job data changes (but merge, don't overwrite)
   useEffect(() => {
     if (job) {
-      if (job.messages) {
-        setMessages(job.messages);
+      // Merge job messages with existing messages (job.messages might be incomplete)
+      const jobMessages = job.messages;
+      if (jobMessages && Array.isArray(jobMessages) && jobMessages.length > 0) {
+        setMessages((prev) => {
+          // Start with job messages as base (they're from REST API, so authoritative)
+          const merged = [...jobMessages];
+          
+          // Add any WebSocket messages that aren't in job.messages
+          prev.forEach((msg) => {
+            // Only add if it's a temporary message (starts with 'temp-') and not in job.messages
+            // Convert id to string to handle cases where API returns number
+            const msgId = String(msg.id);
+            if (msgId.startsWith('temp-') && !merged.some(m => 
+              m.content === msg.content && 
+              m.sender === msg.sender &&
+              Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 2000
+            )) {
+              merged.push(msg);
+            }
+          });
+          
+          // Sort by timestamp
+          return merged.sort((a, b) => 
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        });
       }
+      
       if (job.steps) {
         setSteps(job.steps);
       }
@@ -146,40 +243,47 @@ export default function LiveBuild() {
   const handleWebSocketMessage = (message: WebSocketMessage) => {
     switch (message.kind) {
       case 'stageUpdate':
-        // Chat message from user or agent
+        // Chat message from user or agent (includes both human chat and system descriptions)
+        // According to API reference: role, sender, content, metadata.stage
         if (message.role && message.content) {
-          // Use a more unique ID to avoid duplicate key warnings
+          // Use a temporary ID for WebSocket messages until they're persisted
+          // The server will assign a real ID when it persists the message
           const uniqueId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const newMessage: JobMessage = {
             id: uniqueId,
             role: message.role,
             sender: message.sender || '',
             content: message.content,
-            metadata: message.metadata || {},
+            metadata: {
+              ...message.metadata,
+              // Ensure metadata.stage is preserved if present
+              stage: message.metadata?.stage || undefined,
+            },
             created_at: message.timestamp || new Date().toISOString(),
           };
-          setMessages((prev) => {
-            // Avoid duplicates by checking if message already exists
-            const exists = prev.some(
-              (msg) => msg.content === message.content && 
-                       msg.sender === message.sender && 
-                       msg.created_at === message.timestamp
-            );
-            if (exists) return prev;
-            return [...prev, newMessage];
-          });
+          setMessages((prev) => mergeMessages(prev, newMessage));
         }
         break;
       case 'jobStatus':
         // Job status update (queued, running, done, failed)
         if (message.status) {
-          // Update local job status immediately
-          if (job) {
-            // Update the job object in place
-            const updatedJob = { ...job, status: message.status as any };
-            // Refetch to get full updated job data
-        refetch();
-          }
+          // Add informative message about status change
+          const statusMessages: Record<string, string> = {
+            collecting: '📝 Collecting requirements from you...',
+            queued: '⏳ Job queued and ready to start',
+            planning: '🤔 Executive team is planning the project architecture',
+            prd_ready: '📋 Product Requirements Document is ready',
+            ticketing: '🎫 Creating tickets and breaking down the work',
+            tickets_ready: '✅ Tickets are ready! Starting build process',
+            building: '🔨 Building your application - tickets are being executed',
+            build_done: '🎉 Build completed successfully!',
+            failed: '❌ Build failed - check error details',
+          };
+          const statusMsg = statusMessages[message.status] || `Status changed to: ${message.status}`;
+          addSystemMessage(statusMsg, { stage: message.status });
+          
+          // Refetch to get full updated job data
+          refetch();
         }
         break;
       case 'agentDialogue':
@@ -209,6 +313,7 @@ export default function LiveBuild() {
       case 'prdReady':
         // Final app artifact is ready
         if (message.spec) {
+          addSystemMessage('📄 Product Requirements Document finalized and ready for review', { stage: 'prd_ready' });
           setAppSpec(message.spec);
           // Add app spec tab if it doesn't exist
           setTabs(prev => {
@@ -229,8 +334,65 @@ export default function LiveBuild() {
           toast.success('Project completed!');
         }
         break;
+      case 'ticketUpdate':
+        // Ticket execution feed
+        if (message.ticketId && message.title) {
+          const ticketStatus = message.status || 'updated';
+          const statusEmoji = {
+            'todo': '📋',
+            'in_progress': '🔄',
+            'done': '✅',
+            'blocked': '🚫',
+            'review': '👀',
+          }[ticketStatus] || '📌';
+          
+          const updateMsg = `${statusEmoji} Ticket "${message.title}" (${message.type || 'task'}) is now ${ticketStatus}${message.assignedTo ? ` - assigned to ${message.assignedTo}` : ''}`;
+          if (message.message) {
+            addSystemMessage(`${updateMsg}\n${message.message}`, { 
+              stage: 'building',
+              ticketId: message.ticketId,
+              ticketStatus: ticketStatus,
+            });
+          } else {
+            addSystemMessage(updateMsg, { 
+              stage: 'building',
+              ticketId: message.ticketId,
+              ticketStatus: ticketStatus,
+            });
+          }
+          
+          // Refetch tickets to get updated state
+          if (id) {
+            api.getTickets(id)
+              .then((updatedTickets) => setTickets(updatedTickets))
+              .catch((err) => console.error('Failed to reload tickets:', err));
+          }
+        }
+        break;
+      case 'ticketReset':
+        // Ticket backlog is being regenerated
+        addSystemMessage('🔄 Regenerating ticket backlog - previous tickets are being replaced', { 
+          stage: 'ticketing',
+        });
+        // Refetch tickets when reset happens
+        if (id) {
+          api.getTickets(id)
+            .then((updatedTickets) => {
+              setTickets(updatedTickets);
+              if (updatedTickets.length > 0) {
+                addSystemMessage(`✅ Generated ${updatedTickets.length} new tickets for the project`, { 
+                  stage: 'tickets_ready',
+                });
+              }
+            })
+            .catch((err) => console.error('Failed to reload tickets:', err));
+        }
+        break;
       case 'error':
         toast.error(message.message || 'An error occurred');
+        addSystemMessage(`❌ Error: ${message.message || 'An error occurred'}`, { 
+          type: 'error',
+        });
         break;
       default:
         // Unknown message type, log for debugging
@@ -242,7 +404,6 @@ export default function LiveBuild() {
   const handleSendMessage = (content: string) => {
     if (isConnected && sendMessage) {
       // Optimistically add user's message to the UI immediately
-      // Use a more unique ID to avoid duplicate key warnings
       const timestamp = new Date().toISOString();
       const uniqueId = `temp-user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const userMessage: JobMessage = {
@@ -254,19 +415,11 @@ export default function LiveBuild() {
         created_at: timestamp,
       };
       
-      setMessages((prev) => {
-        // Check if message already exists to avoid duplicates
-        // We check by content and recent timestamp to avoid showing the same message twice
-        const exists = prev.some(
-          (msg) => msg.content === content && 
-                   msg.role === 'user' && 
-                   Math.abs(new Date(msg.created_at).getTime() - new Date(timestamp).getTime()) < 2000
-        );
-        if (exists) return prev;
-        return [...prev, userMessage];
-      });
+      // Use mergeMessages to avoid duplicates
+      setMessages((prev) => mergeMessages(prev, userMessage));
       
       // Send message via WebSocket
+      // According to API reference: send {"kind":"chat","content":"..."} while status is collecting
       sendMessage({ kind: 'chat', content });
     } else {
       toast.error('WebSocket not connected');
@@ -296,6 +449,34 @@ export default function LiveBuild() {
       toast.error(error?.detail || 'Failed to update prompt');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleContinueJob = async () => {
+    if (!id || !continuationText.trim()) {
+      toast.error('Please enter your additional requirements');
+      return;
+    }
+
+    setIsContinuing(true);
+    try {
+      await api.continueJob(id, continuationText.trim());
+      addSystemMessage(`🔄 Continuation request submitted: "${continuationText.trim()}"`, {
+        stage: 'continuation',
+        type: 'user_followup',
+      });
+      toast.success('Continuation queued! The agents will process your new requirements.');
+      setIsContinuationOpen(false);
+      setContinuationText('');
+      refetch();
+    } catch (error: any) {
+      const errorMsg = error?.detail || 'Failed to submit continuation request';
+      toast.error(errorMsg);
+      addSystemMessage(`❌ Continuation failed: ${errorMsg}`, {
+        type: 'error',
+      });
+    } finally {
+      setIsContinuing(false);
     }
   };
 
@@ -356,6 +537,7 @@ export default function LiveBuild() {
   const timeElapsed = formatTimeAgo(job.created_at);
   const canSendMessages = job.status === 'collecting';
   const canEditPrompt = job.status === 'collecting';
+  const canContinue = (job.status === 'build_done' || job.status === 'failed' || job.status === 'done') && !job.error_message?.includes('continuation');
 
   const statusColors = {
     planning: "bg-status-planning/10 text-status-planning border-status-planning/20",
@@ -405,6 +587,17 @@ export default function LiveBuild() {
               >
                 <Edit className="w-4 h-4" />
                 Edit Prompt
+              </Button>
+            )}
+            {canContinue && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setIsContinuationOpen(true)}
+                className="gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Add Features
               </Button>
             )}
             <Button
@@ -482,9 +675,7 @@ export default function LiveBuild() {
               onMessageDeleted={() => {
                 refetch();
                 if (id) {
-                  api.getJobMessages(id)
-                    .then((msgs) => setMessages(msgs))
-                    .catch((err) => console.error('Failed to reload messages:', err));
+                  loadMessages(id);
                 }
               }}
             />
@@ -540,6 +731,62 @@ export default function LiveBuild() {
                   disabled={isUpdating || !editPrompt.trim()}
                 >
                   {isUpdating ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Continuation Dialog */}
+      {isContinuationOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-2xl mx-4 glass">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Add New Features</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setIsContinuationOpen(false);
+                    setContinuationText('');
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="continuation-requirements">Additional Requirements</Label>
+                <Textarea
+                  id="continuation-requirements"
+                  value={continuationText}
+                  onChange={(e) => setContinuationText(e.target.value)}
+                  placeholder="Describe the new features or changes you'd like to add... (e.g., 'Add PDF export functionality', 'Implement dark mode', 'Add user authentication')"
+                  className="min-h-[200px]"
+                />
+                <p className="text-sm text-muted-foreground">
+                  The agents will process your new requirements and update the project accordingly. This will trigger a new build cycle.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsContinuationOpen(false);
+                    setContinuationText('');
+                  }}
+                  disabled={isContinuing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleContinueJob}
+                  disabled={isContinuing || !continuationText.trim()}
+                >
+                  {isContinuing ? 'Submitting...' : 'Submit Requirements'}
                 </Button>
               </div>
             </CardContent>
